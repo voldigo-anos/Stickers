@@ -1,0 +1,5 @@
+python-telegram-bot==21.6
+Pillow==10.4.0
+pangocffi==0.13.0
+pangocairocffi==0.7.0
+cairocffi==1.7.1
