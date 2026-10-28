@@ -317,7 +317,69 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # publication d'un pack dans la chaine (ADMINS DU BOT uniquement)
 # --------------------------------------------------------------------------
 
-async def post_pack_to_channel(context: ContextTypes.DEFAULT_TYPE, pack_name: str):
+def _is_own_pack(context, name: str) -> bool:
+    """seuls les packs crees avec CE bot finissent par _by_<nom du bot>"""
+    return name.lower().endswith(f'_by_{context.bot.username}'.lower())
+
+
+def _pack_name_from_arg(arg: str, bot_username: str) -> str:
+    """accepte un lien complet, le nom complet ou le nom court du pack"""
+    name = arg.strip().rstrip('/').rsplit('/', 1)[-1]
+    if '_by_' not in name.lower():
+        name = f'{name}_by_{bot_username}'
+    return name
+
+
+async def adopt_pack(context, user_id: int, name: str, sticker_set=None):
+    """enregistre dans la base un pack qui existe deja sur Telegram.
+
+    Il devient trouvable avec /search et apparait dans /mypacks. Utile quand la base
+    a ete remise a zero (redeploiement sans disque permanent).
+    Retourne (titre, nombre de stickers) ou None si le pack est introuvable.
+    """
+    if sticker_set is None:
+        try:
+            sticker_set = await context.bot.get_sticker_set(name)
+        except TelegramError:
+            return None
+    canonical = getattr(sticker_set, 'name', None) or name
+    row = db.get_pack_by_name(canonical)
+    pack_id = row['id'] if row else db.add_pack(user_id, canonical, sticker_set.title)
+    for sticker in sticker_set.stickers:
+        db.add_sticker(pack_id, sticker.file_unique_id)
+    return sticker_set.title, db.pack_count(pack_id)
+
+
+async def cmd_index(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/index : ajoute des packs existants a la recherche (admins du bot uniquement)"""
+    user = update.effective_user
+    if not is_admin(user.id):
+        return await reply(update, S.NOT_ADMIN)
+
+    names = [_pack_name_from_arg(arg, context.bot.username) for arg in (context.args or [])]
+    replied = update.effective_message.reply_to_message
+    if replied and replied.sticker and replied.sticker.set_name:
+        names.append(replied.sticker.set_name)
+    # doublons ignores, sans tenir compte des majuscules (Doma_by_X == doma_by_x)
+    names = list({name.lower(): name for name in reversed(names)}.values())[::-1][:30]
+    if not names:
+        return await reply(update, S.INDEX_USAGE)
+
+    lines = []
+    for name in names:
+        if not _is_own_pack(context, name):
+            lines.append(S.INDEX_FOREIGN.format(name=html.escape(name)))
+            continue
+        result = await adopt_pack(context, user.id, name)
+        if result is None:
+            lines.append(S.INDEX_NOT_FOUND.format(name=html.escape(name)))
+        else:
+            lines.append(S.INDEX_OK.format(title=html.escape(result[0]), count=result[1]))
+    lines.append(S.INDEX_TOTAL.format(total=db.count_packs()))
+    await reply(update, '\n'.join(lines))
+
+
+async def post_pack_to_channel(context: ContextTypes.DEFAULT_TYPE, pack_name: str, adopt_user_id=None):
     """publie le pack dans la chaine avec le bouton « Voir le pack ».
 
     Retourne (reussi, message a montrer a l'admin).
@@ -335,6 +397,9 @@ async def post_pack_to_channel(context: ContextTypes.DEFAULT_TYPE, pack_name: st
         except TelegramError:
             return False, S.POST_NOT_FOUND
         title, count = sticker_set.title, len(sticker_set.stickers)
+        if adopt_user_id and _is_own_pack(context, pack_name):
+            # pack inconnu de la base : on l'y remet pour qu'il soit trouvable avec /search
+            await adopt_pack(context, adopt_user_id, pack_name, sticker_set)
 
     try:
         await _send_retry(
@@ -367,7 +432,7 @@ async def on_post_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await query.answer(S.POST_ADMIN_ONLY, show_alert=True)
 
     name = (query.data or '')[len('post:'):]
-    ok, message = await post_pack_to_channel(context, name)
+    ok, message = await post_pack_to_channel(context, name, adopt_user_id=update.effective_user.id)
     plain = re.sub(r'<[^>]+>', '', html.unescape(message))[:190]
     await query.answer(plain, show_alert=not ok)
     if ok and query.message:
@@ -384,10 +449,8 @@ async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         return await reply(update, S.POST_USAGE)
 
-    name = context.args[0].strip().rstrip('/').rsplit('/', 1)[-1]
-    if '_by_' not in name:
-        name = f'{name}_by_{context.bot.username}'
-    ok, message = await post_pack_to_channel(context, name)
+    name = _pack_name_from_arg(context.args[0], context.bot.username)
+    ok, message = await post_pack_to_channel(context, name, adopt_user_id=update.effective_user.id)
     await reply(update, message)
 
 
@@ -436,9 +499,11 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     safe_query = html.escape(query)
 
     if not rows:
-        return await _reply_quote(
-            update, context, S.SEARCH_NONE.format(query=safe_query), kb.search_results([], user.id)
-        )
+        text = S.SEARCH_NONE.format(query=safe_query)
+        if is_admin(user.id):
+            # aide au diagnostic : combien de packs la recherche connait-elle ?
+            text += S.SEARCH_ADMIN_NOTE.format(packs=await asyncio.to_thread(db.count_packs))
+        return await _reply_quote(update, context, text, kb.search_results([], user.id))
 
     text = S.SEARCH_RESULTS.format(query=f'<b>{safe_query}</b>', total=total)
     if total > len(rows):
@@ -1327,6 +1392,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler('top', cmd_top))
     app.add_handler(CommandHandler(['search', 'recherche'], cmd_search))
     app.add_handler(CommandHandler('post', cmd_post))
+    app.add_handler(CommandHandler('index', cmd_index))
     app.add_handler(CommandHandler('cancel', cmd_cancel))
     app.add_handler(CommandHandler('admin', cmd_admin))
     app.add_handler(CommandHandler('stats', cmd_stats))

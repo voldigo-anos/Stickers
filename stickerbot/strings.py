@@ -234,6 +234,20 @@ CHANNEL_POST = (
     "🔢 {count} sticker(s)\n\n"
     "👇 Appuie sur <b>Voir le pack</b> pour l'ajouter à Telegram."
 )
+SEARCH_ADMIN_NOTE = (
+    "\n\nℹ️ <i>Admin : la recherche connaît {packs} pack(s). S'il en manque (base remise à zéro "
+    "après un redéploiement), réponds à un sticker du pack avec /index.</i>"
+)
+INDEX_USAGE = (
+    "🗂 <b>Ajouter des packs à la recherche</b>\n\n"
+    "• Réponds à un sticker du pack avec <code>/index</code>\n"
+    "• ou envoie <code>/index lien1 lien2 ...</code>\n\n"
+    "Les packs créés avec ce bot deviennent alors trouvables avec /search."
+)
+INDEX_OK = "✅ <b>{title}</b> — {count} sticker(s)"
+INDEX_NOT_FOUND = "⚠️ Introuvable sur Telegram : <code>{name}</code>"
+INDEX_FOREIGN = "⚠️ Pas créé avec ce bot : <code>{name}</code>"
+INDEX_TOTAL = "\n📚 Packs dans la recherche : <b>{total}</b>"
 SEARCH_USAGE = (
     "🔍 <b>Recherche de packs</b>\n\n"
     "Utilisation : <code>/search nom du pack</code>\n"

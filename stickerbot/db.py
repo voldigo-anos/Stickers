@@ -210,6 +210,11 @@ def remove_sticker(pack_id: int, file_unique_id: str):
     _exec('DELETE FROM pack_stickers WHERE pack_id = ? AND file_unique_id = ?', (pack_id, file_unique_id))
 
 
+def count_packs() -> int:
+    row = _exec('SELECT COUNT(*) AS c FROM packs', (), 'one')
+    return row['c'] if row else 0
+
+
 def pack_count(pack_id: int) -> int:
     row = _exec('SELECT COUNT(*) AS c FROM pack_stickers WHERE pack_id = ?', (pack_id,), 'one')
     return row['c'] if row else 0
