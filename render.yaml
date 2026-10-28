@@ -15,7 +15,7 @@ services:
       - key: CREATOR_URL
         value: https://t.me/Shadow_sekai
       - key: CHANNEL_URL
-        value: https://t.me/Shadow_sekai
+        value: https://t.me/Stickers_light
       - key: GROUP_URL
         value: https://t.me/Shadow_sekai
       - key: DB_PATH
