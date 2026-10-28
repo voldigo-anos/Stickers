@@ -25,6 +25,8 @@ WA_ANIMATED_MAX_BYTES = 500 * 1024
 SHAPE_ORIGINAL = 'original'
 SHAPE_SQUARE = 'square'
 SHAPE_ROUND = 'round'
+# carre PLEIN : l'image remplit tout le 512x512 (recadrage centre, sans bords vides)
+SHAPE_COVER = 'cover'
 
 FFMPEG_TIMEOUT = 120
 
@@ -63,6 +65,17 @@ def _fit_square(im: Image.Image) -> Image.Image:
     return canvas
 
 
+def _fit_cover(im: Image.Image) -> Image.Image:
+    """carre plein : l'image remplit tout le 512x512 (recadrage au centre)"""
+    ratio = max(STICKER_SIZE / im.width, STICKER_SIZE / im.height)
+    im = im.resize(
+        (max(1, round(im.width * ratio)), max(1, round(im.height * ratio))), Image.LANCZOS
+    )
+    left = (im.width - STICKER_SIZE) // 2
+    top = (im.height - STICKER_SIZE) // 2
+    return im.crop((left, top, left + STICKER_SIZE, top + STICKER_SIZE)).convert('RGBA')
+
+
 def circle_mask(size: int = STICKER_SIZE) -> Image.Image:
     mask = Image.new('L', (size * 4, size * 4), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, size * 4 - 1, size * 4 - 1), fill=255)
@@ -90,6 +103,8 @@ def _apply_shape(im: Image.Image, shape: str) -> Image.Image:
         return _fit_square(im)
     if shape == SHAPE_ROUND:
         return _fit_round(im)
+    if shape == SHAPE_COVER:
+        return _fit_cover(im)
     return _fit_original(im)
 
 
@@ -155,7 +170,13 @@ def _video_filters(tmp: str, shape: str, watermark: str, fps: int, color: str = 
     """construit les arguments -filter_complex pour ffmpeg"""
     steps = [f'scale={STICKER_SIZE}:{STICKER_SIZE}:force_original_aspect_ratio=decrease']
 
-    if shape == SHAPE_SQUARE:
+    if shape == SHAPE_COVER:
+        # carre plein : on agrandit pour couvrir tout le carre puis on recadre au centre
+        steps = [
+            f'scale={STICKER_SIZE}:{STICKER_SIZE}:force_original_aspect_ratio=increase',
+            f'crop={STICKER_SIZE}:{STICKER_SIZE}',
+        ]
+    elif shape == SHAPE_SQUARE:
         # la transparence doit exister AVANT le pad pour avoir des bords transparents
         steps.append('format=yuva420p')
         steps.append(

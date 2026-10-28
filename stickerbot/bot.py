@@ -86,6 +86,16 @@ def pack_link(name: str) -> str:
     return f'https://t.me/addstickers/{name}'
 
 
+async def send_pack_card(bot, chat_id: int, title: str, count: int, name: str):
+    """envoie le pack termine avec le bouton « Voir le pack » (pas de lien brut)"""
+    return await bot.send_message(
+        chat_id,
+        S.PACK_CARD.format(title=html.escape(title), count=count),
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb.pack_actions(name),
+    )
+
+
 async def reply(update: Update, text: str, **kwargs):
     return await update.effective_message.reply_html(text, **kwargs)
 
@@ -372,7 +382,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         auto = context.user_data.get('auto')
         if auto and auto.get('count'):
-            return await start_auto_pack(update, context, name, auto)
+            # pack automatique : forme carree imposee, on demande juste l'ecriture
+            auto['name'] = name
+            context.user_data['step'] = STEP_WM
+            return await reply(update, S.ASK_WM, reply_markup=kb.wm_menu())
 
         context.user_data['step'] = STEP_SHAPE
         context.user_data['draft'] = {'name': name, 'title': context.user_data.get('title', 'Mon pack')}
@@ -418,6 +431,20 @@ async def apply_watermark(update: Update, context: ContextTypes.DEFAULT_TYPE, te
 
 
 async def finish_style(update, context, color):
+    auto = context.user_data.get('auto')
+    if auto and auto.get('name') and auto.get('count'):
+        watermark = (context.user_data.pop('watermark', '') or '').strip()
+        if watermark:
+            # on teste l'ecriture avant de lancer 60 a 120 stickers
+            try:
+                await asyncio.to_thread(
+                    converter.watermark_layer, 512, 512, watermark, converter.SHAPE_COVER, color
+                )
+            except ValueError as exc:
+                context.user_data['step'] = STEP_WM
+                return await reply(update, f'⚠️ {html.escape(str(exc))}', reply_markup=kb.wm_menu())
+        return await start_auto_pack(update, context, auto['name'], auto, watermark, color)
+
     text = context.user_data.pop('watermark', '')
     shape = context.user_data.pop('shape', converter.SHAPE_ORIGINAL)
     watermark = (text or '').strip()
@@ -468,9 +495,10 @@ async def finish_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('active', None)
     await reply(
         update,
-        S.FINISHED.format(title=active['title'], count=count, link=pack_link(active['name'])),
+        S.FINISHED,
         reply_markup=kb.main_menu(is_admin(update.effective_user.id)),
     )
+    await send_pack_card(context.bot, update.effective_chat.id, active['title'], count, active['name'])
 
 
 # --------------------------------------------------------------------------
@@ -767,7 +795,7 @@ async def _theme_job(context, chat_id, file_id, waiting):
 # pack automatique (Pinterest)
 # --------------------------------------------------------------------------
 
-async def start_auto_pack(update, context, name, auto):
+async def start_auto_pack(update, context, name, auto, watermark='', color='#FFFFFF'):
     user_id = update.effective_user.id
     if user_id in _auto_running:
         return await reply(update, S.AUTO_BUSY)
@@ -776,9 +804,10 @@ async def start_auto_pack(update, context, name, auto):
         'title': context.user_data.get('title', 'Mon pack'),
         'created': False,
         'id': None,
-        'shape': converter.SHAPE_ORIGINAL,
-        'watermark': '',
-        'watermark_color': '#FFFFFF',
+        # tous les stickers du pack automatique sont carres (image pleine 512x512)
+        'shape': converter.SHAPE_COVER,
+        'watermark': watermark,
+        'watermark_color': color,
     }
     context.user_data.clear()
     waiting = await reply(
@@ -791,23 +820,25 @@ async def start_auto_pack(update, context, name, auto):
     )
 
 
-async def _auto_sticker(url, mode, is_backup):
+async def _auto_sticker(url, mode, is_backup, active):
+    shape = active.get('shape', converter.SHAPE_COVER)
+    watermark = (active.get('watermark') or '').strip()
+    color = active.get('watermark_color', '#FFFFFF')
     raw = await asyncio.to_thread(pinterest.fetch, url)
     if mode == pinterest.MODE_STATIC:
-        data = await run_convert(converter.image_to_webp, raw)
+        data = await run_convert(converter.image_to_webp, raw, shape, watermark, color)
         return InputSticker(sticker=data, emoji_list=['🙂'], format='static')
     if is_backup:
         raw = await run_convert(converter.photo_to_motion_mp4, raw)
         suffix = '.mp4'
     else:
         suffix = '.gif'
-    data = await run_convert(converter.video_to_webm, raw, suffix)
+    data = await run_convert(converter.video_to_webm, raw, suffix, shape, watermark, color)
     return InputSticker(sticker=data, emoji_list=['🙂'], format='video')
 
 
 async def _auto_pack_job(context, user_id, active, mode, query, want, waiting):
     fmt = S.AUTO_FORMATS[mode]
-    link = pack_link(active['name'])
     done = 0
     try:
         main, backup = await asyncio.to_thread(pinterest.collect, query, mode, want)
@@ -823,7 +854,7 @@ async def _auto_pack_job(context, user_id, active, mode, query, want, waiting):
                 continue
             seen.add(key)
             try:
-                sticker = await _auto_sticker(url, mode, is_backup)
+                sticker = await _auto_sticker(url, mode, is_backup, active)
                 async with user_lock(user_id):
                     await push_sticker(context, active, sticker, user_id)
                     db.add_sticker(active['id'], 'pin_' + key)
@@ -834,7 +865,7 @@ async def _auto_pack_job(context, user_id, active, mode, query, want, waiting):
             if done % 10 == 0 and done < want:
                 try:
                     await waiting.edit_text(
-                        S.AUTO_PROGRESS.format(done=done, want=want, fmt=fmt, link=link),
+                        S.AUTO_PROGRESS.format(done=done, want=want, fmt=fmt),
                         parse_mode=ParseMode.HTML,
                     )
                 except TelegramError:
@@ -842,10 +873,15 @@ async def _auto_pack_job(context, user_id, active, mode, query, want, waiting):
             await asyncio.sleep(0.3)  # reste sous les limites de Telegram
         if not done:
             return await waiting.edit_text(S.AUTO_NOTHING.format(query=html.escape(query)), parse_mode=ParseMode.HTML)
-        text = S.AUTO_DONE.format(title=html.escape(active['title']), done=done, link=link)
+        text = S.AUTO_DONE.format(title=html.escape(active['title']), done=done)
         if done < want:
             text += S.AUTO_PARTIAL.format(done=done, want=want)
         await waiting.edit_text(text, parse_mode=ParseMode.HTML)
+        # le pack est envoye avec le bouton « Voir le pack » (pas de lien brut)
+        await send_pack_card(
+            context.bot, waiting.chat_id, active['title'],
+            db.pack_count(active['id']), active['name'],
+        )
     except Exception as exc:  # noqa: BLE001
         logger.exception('pack automatique échoué')
         try:

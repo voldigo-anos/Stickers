@@ -67,6 +67,7 @@ SHAPE_LABELS = {
     'original': '🖼 Original',
     'square': '⬛ Carré',
     'round': '⚪ Rond',
+    'cover': '⬛ Carré',
 }
 
 SHAPE_CHOSEN = "✅ Format retenu : <b>{shape}</b>"
@@ -98,7 +99,8 @@ NO_ACTIVE_PACK = (
     "📦 Aucun pack en cours.\n"
     "Appuie sur <b>➕ Nouveau pack</b> ou <b>📦 Mes packs</b> pour en sélectionner un."
 )
-FINISHED = "🎉 <b>Terminé !</b>\n\n📦 <b>{title}</b>\n🔢 {count} sticker(s)\n🔗 {link}"
+FINISHED = "🎉 <b>Terminé !</b> Ton pack est prêt 👇"
+PACK_CARD = "📦 <b>{title}</b>\n🔢 {count} sticker(s)"
 WORKING = "⏳ Traitement en cours... le bot reste disponible pour tout le monde 🙂"
 IMPORT_ASK = (
     "📦 <b>{title}</b>\n"
@@ -202,11 +204,11 @@ AUTO_BAD_COUNT = "⚠️ Envoie un nombre entre <b>60</b> et <b>120</b>."
 AUTO_FORMATS = {'static': 'statique 🖼', 'gif': 'GIF 🎞'}
 AUTO_SEARCHING = "🔎 Je cherche « <b>{query}</b> » sur Pinterest..."
 AUTO_NOTHING = "😕 Aucun résultat Pinterest pour « <b>{query}</b> ». Essaie un autre thème."
-AUTO_PROGRESS = "⚙️ Création en cours : <b>{done}/{want}</b> stickers ({fmt})\n🔗 {link}"
+AUTO_PROGRESS = "⚙️ Création en cours : <b>{done}/{want}</b> stickers ({fmt})"
 AUTO_DONE = (
     "🎉 <b>Pack automatique terminé !</b>\n\n"
     "📦 <b>{title}</b> — {done} sticker(s)\n"
-    "🔗 {link}"
+    "👇 Appuie sur <b>Voir le pack</b> pour l'ajouter à Telegram."
 )
 AUTO_PARTIAL = "\n\n⚠️ Pinterest n'a fourni que {done} images utilisables sur {want} demandées."
 AUTO_BUSY = "⏳ Un pack automatique est déjà en cours pour toi, attends qu'il se termine."
