@@ -92,7 +92,7 @@ PACK_READY = (
 )
 
 
-ADDED = "✅ Ajouté ! 🔢 <b>{count}</b> sticker(s) dans <b>{title}</b>\n🔗 {link}"
+ADDED = "✅ Ajouté ! 🔢 <b>{count}</b> sticker(s) dans <b>{title}</b>"
 DUPLICATE = "♻️ Ce sticker est <b>déjà</b> dans le pack — je ne l'ajoute pas deux fois."
 PACK_FULL = "⚠️ Pack plein ({max} stickers max). Crée un nouveau pack ✏️"
 NO_ACTIVE_PACK = (
@@ -112,7 +112,7 @@ IMPORT_DONE = (
     "➕ Ajoutés : <b>{added}</b>\n"
     "♻️ Doublons ignorés : <b>{dupes}</b>\n"
     "⚠️ Échecs : <b>{failed}</b>\n\n"
-    "🔗 {link}"
+    "👇 Appuie sur <b>Voir le pack</b> pour le voir sur Telegram."
 )
 CANCELLED = "🚫 Opération annulée."
 ERROR = "⚠️ Une erreur est survenue : <code>{error}</code>"
@@ -210,5 +210,6 @@ AUTO_DONE = (
     "📦 <b>{title}</b> — {done} sticker(s)\n"
     "👇 Appuie sur <b>Voir le pack</b> pour l'ajouter à Telegram."
 )
+AUTO_FINISHED_NOTE = "✅ Création terminée : <b>{done}/{want}</b> stickers"
 AUTO_PARTIAL = "\n\n⚠️ Pinterest n'a fourni que {done} images utilisables sur {want} demandées."
 AUTO_BUSY = "⏳ Un pack automatique est déjà en cours pour toi, attends qu'il se termine."

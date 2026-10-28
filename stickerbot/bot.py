@@ -7,7 +7,7 @@ import re
 
 from telegram import InputSticker, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest, NetworkError, RetryAfter, TelegramError, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -86,14 +86,38 @@ def pack_link(name: str) -> str:
     return f'https://t.me/addstickers/{name}'
 
 
-async def send_pack_card(bot, chat_id: int, title: str, count: int, name: str):
-    """envoie le pack termine avec le bouton « Voir le pack » (pas de lien brut)"""
-    return await bot.send_message(
-        chat_id,
-        S.PACK_CARD.format(title=html.escape(title), count=count),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb.pack_actions(name),
-    )
+async def _send_retry(bot, chat_id, text, markup, attempts=6):
+    """envoie un message en reessayant si Telegram limite le debit (flood control)"""
+    for attempt in range(attempts):
+        try:
+            return await bot.send_message(
+                chat_id, text, parse_mode=ParseMode.HTML, reply_markup=markup,
+                disable_notification=False,
+            )
+        except RetryAfter as exc:
+            delay = exc.retry_after
+            delay = delay.total_seconds() if hasattr(delay, 'total_seconds') else float(delay)
+            if attempt == attempts - 1:
+                raise
+            await asyncio.sleep(delay + 1)
+        except BadRequest:
+            raise
+        except (TimedOut, NetworkError):
+            if attempt == attempts - 1:
+                raise
+            await asyncio.sleep(2 * (attempt + 1))
+
+
+async def send_pack_card(bot, chat_id: int, name: str, text: str):
+    """envoie le pack termine avec le bouton « Voir le pack » (pas de lien brut).
+
+    Nouveau message => l'utilisateur recoit une notification.
+    """
+    try:
+        return await _send_retry(bot, chat_id, text, kb.pack_actions(name))
+    except BadRequest:
+        logger.warning('clavier complet refusé, envoi du bouton « Voir le pack » seul', exc_info=True)
+        return await _send_retry(bot, chat_id, text, kb.view_pack_only(name))
 
 
 async def reply(update: Update, text: str, **kwargs):
@@ -498,7 +522,10 @@ async def finish_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         S.FINISHED,
         reply_markup=kb.main_menu(is_admin(update.effective_user.id)),
     )
-    await send_pack_card(context.bot, update.effective_chat.id, active['title'], count, active['name'])
+    await send_pack_card(
+        context.bot, update.effective_chat.id, active['name'],
+        S.PACK_CARD.format(title=html.escape(active['title']), count=count),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -594,8 +621,9 @@ async def _add_one_job(context, user_id, active, media, waiting):
             db.add_sticker(active['id'], unique_id)
 
         await waiting.edit_text(
-            S.ADDED.format(count=db.pack_count(active['id']), title=active['title'], link=pack_link(active['name'])),
+            S.ADDED.format(count=db.pack_count(active['id']), title=html.escape(active['title'])),
             parse_mode=ParseMode.HTML,
+            reply_markup=kb.view_pack_only(active['name']),
         )
     except Exception as exc:  # noqa: BLE001 - l'utilisateur doit TOUJOURS avoir une reponse
         logger.exception('ajout impossible')
@@ -658,12 +686,16 @@ async def _import_full_pack_job(context, user_id, chat_id, active, set_name):
                 failed += 1
             await asyncio.sleep(0.6)
 
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=S.IMPORT_DONE.format(added=added, dupes=dupes, failed=failed, link=pack_link(active['name'])),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb.pack_menu(),
-    )
+    # nouveau message (= notification) avec le bouton « Voir le pack », sans lien brut.
+    # Le clavier du pack (Terminer / WhatsApp...) reste affiche : on ne le remplace pas.
+    try:
+        await _send_retry(
+            context.bot, chat_id,
+            S.IMPORT_DONE.format(added=added, dupes=dupes, failed=failed),
+            kb.view_pack_only(active['name']),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("envoi du message d'importation terminée impossible")
 
 
 
@@ -876,12 +908,19 @@ async def _auto_pack_job(context, user_id, active, mode, query, want, waiting):
         text = S.AUTO_DONE.format(title=html.escape(active['title']), done=done)
         if done < want:
             text += S.AUTO_PARTIAL.format(done=done, want=want)
-        await waiting.edit_text(text, parse_mode=ParseMode.HTML)
-        # le pack est envoye avec le bouton « Voir le pack » (pas de lien brut)
-        await send_pack_card(
-            context.bot, waiting.chat_id, active['title'],
-            db.pack_count(active['id']), active['name'],
-        )
+        # 1) on envoie D'ABORD le message final (nouveau message = notification)
+        #    avec le bouton « Voir le pack », en reessayant si Telegram limite le debit
+        try:
+            await send_pack_card(context.bot, waiting.chat_id, active['name'], text)
+        except Exception:  # noqa: BLE001
+            logger.exception("envoi du message final du pack automatique impossible")
+        # 2) ensuite, on met a jour le message de progression (sans importance)
+        try:
+            await waiting.edit_text(
+                S.AUTO_FINISHED_NOTE.format(done=done, want=want), parse_mode=ParseMode.HTML
+            )
+        except TelegramError:
+            pass
     except Exception as exc:  # noqa: BLE001
         logger.exception('pack automatique échoué')
         try:

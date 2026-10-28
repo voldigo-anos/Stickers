@@ -108,17 +108,33 @@ def import_choice(set_name: str) -> InlineKeyboardMarkup:
     )
 
 
-def pack_actions(pack_name: str) -> InlineKeyboardMarkup:
+def _cb_ok(data: str) -> bool:
+    """Telegram refuse un callback_data de plus de 64 octets"""
+    return len(data.encode('utf-8')) <= 64
+
+
+def view_pack_only(pack_name: str) -> InlineKeyboardMarkup:
+    """clavier minimal : uniquement le bouton « Voir le pack » (bouton lien, sans limite)"""
     return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton('📨 Continuer ce pack', callback_data=f'use:{pack_name}')],
-            [
-                InlineKeyboardButton('🟢 WhatsApp', callback_data=f'wa:{pack_name}'),
-                InlineKeyboardButton('🗑 Oublier', callback_data=f'del:{pack_name}'),
-            ],
-            [InlineKeyboardButton('🔗 Voir le pack', url=f'https://t.me/addstickers/{pack_name}')],
-        ]
+        [[InlineKeyboardButton('🔗 Voir le pack', url=f'https://t.me/addstickers/{pack_name}')]]
     )
+
+
+def pack_actions(pack_name: str) -> InlineKeyboardMarkup:
+    rows = []
+    use_data, wa_data, del_data = f'use:{pack_name}', f'wa:{pack_name}', f'del:{pack_name}'
+    if _cb_ok(use_data):
+        rows.append([InlineKeyboardButton('📨 Continuer ce pack', callback_data=use_data)])
+    second = []
+    if _cb_ok(wa_data):
+        second.append(InlineKeyboardButton('🟢 WhatsApp', callback_data=wa_data))
+    if _cb_ok(del_data):
+        second.append(InlineKeyboardButton('🗑 Oublier', callback_data=del_data))
+    if second:
+        rows.append(second)
+    # le bouton « Voir le pack » est TOUJOURS present
+    rows.append([InlineKeyboardButton('🔗 Voir le pack', url=f'https://t.me/addstickers/{pack_name}')])
+    return InlineKeyboardMarkup(rows)
 
 
 COLOR_CHOICES = {
