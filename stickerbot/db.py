@@ -1,7 +1,9 @@
 import os
+import re
 import sqlite3
 import threading
 import time
+import unicodedata
 
 from config import DB_PATH
 
@@ -126,6 +128,59 @@ def user_packs(user_id: int):
         (user_id,),
         'all',
     )
+
+
+def _norm(text: str) -> str:
+    """minuscules, sans accents, et les polices fantaisie (𝓜𝓪𝓻𝓲𝓽𝓸...) deviennent du texte normal"""
+    text = unicodedata.normalize('NFKD', text or '')
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    return text.casefold()
+
+
+def search_packs(query: str, limit: int = 20):
+    """cherche dans TOUS les packs crees avec le bot (titre + lien du pack).
+
+    Retourne (liste des `limit` meilleurs resultats, nombre total de resultats).
+    Tous les mots de la recherche doivent etre presents ; les meilleurs en premier.
+    """
+    words = [w for w in re.split(r'[\s_]+', _norm(query)) if w]
+    if not words:
+        return [], 0
+    wanted = ' '.join(words)
+
+    rows = _exec(
+        """
+        SELECT p.id, p.name, p.title, p.created_at, COUNT(s.id) AS count
+        FROM packs p
+        LEFT JOIN users u ON u.user_id = p.user_id
+        LEFT JOIN pack_stickers s ON s.pack_id = p.id
+        WHERE COALESCE(u.banned, 0) = 0
+        GROUP BY p.id
+        HAVING COUNT(s.id) > 0
+        """,
+        (),
+        'all',
+    )
+
+    found = []
+    for row in rows:
+        title = _norm(row['title'])
+        short = _norm(row['name'].rsplit('_by_', 1)[0]).replace('_', ' ')
+        hay = title + ' ' + short
+        if not all(w in hay for w in words):
+            continue
+        if wanted in (title, short):
+            score = 0
+        elif title.startswith(wanted) or short.startswith(wanted):
+            score = 1
+        elif all(re.search(r'(?<!\w)' + re.escape(w), hay) for w in words):
+            score = 2
+        else:
+            score = 3
+        found.append((score, -row['count'], -row['created_at'], dict(row)))
+
+    found.sort(key=lambda item: item[:3])
+    return [item[3] for item in found[:limit]], len(found)
 
 
 def delete_pack(pack_id: int):

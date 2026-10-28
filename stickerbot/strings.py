@@ -26,6 +26,7 @@ HELP = (
     "/new — créer un pack\n"
     "/mypacks — mes packs\n"
     "/top — classement\n"
+    "/search nom — chercher un pack (marche aussi dans les groupes)\n"
     "🤖 <b>Pack automatique</b> : choisis statique ou GIF, un thème et 60 à 120 stickers, "
     "je trouve les images sur Pinterest et je crée le pack.\n"
     "/cancel — annuler l'opération en cours\n\n"
@@ -210,6 +211,46 @@ AUTO_DONE = (
     "📦 <b>{title}</b> — {done} sticker(s)\n"
     "👇 Appuie sur <b>Voir le pack</b> pour l'ajouter à Telegram."
 )
+POST_HINT = "\n\n📢 <i>Admin : tu peux poster ce pack dans la chaîne.</i>"
+POST_ADMIN_ONLY = "⛔ Réservé aux admins du bot."
+POST_DONE = "✅ Pack posté dans la chaîne !"
+POST_NO_CHANNEL = (
+    "⚠️ Chaîne non configurée : renseigne CHANNEL_URL (lien public) "
+    "ou CHANNEL_CHAT_ID sur ton hébergement."
+)
+POST_NOT_FOUND = "⚠️ Pack introuvable. Envoie le lien du pack ou son nom."
+POST_FORBIDDEN = (
+    "⚠️ Je ne peux pas publier dans la chaîne : ajoute-moi comme "
+    "administrateur avec le droit « Publier des messages »."
+)
+POST_BAD_CHAT = "⚠️ Chaîne introuvable : vérifie CHANNEL_URL / CHANNEL_CHAT_ID."
+POST_USAGE = (
+    "📢 <b>Poster un pack dans la chaîne</b>\n\n"
+    "Utilisation : <code>/post lien_ou_nom_du_pack</code>\n"
+    "Tu peux aussi appuyer sur <b>📢 Poster dans la chaîne</b> après la création d'un pack."
+)
+CHANNEL_POST = (
+    "📦 <b>{title}</b>\n"
+    "🔢 {count} sticker(s)\n\n"
+    "👇 Appuie sur <b>Voir le pack</b> pour l'ajouter à Telegram."
+)
+SEARCH_USAGE = (
+    "🔍 <b>Recherche de packs</b>\n\n"
+    "Utilisation : <code>/search nom du pack</code>\n"
+    "Exemple : <code>/search naruto</code>"
+)
+SEARCH_RESULTS = (
+    "🔍 <b>Résultats de la recherche :</b> {query}\n"
+    "📦 <b>Nombre de packs :</b> {total}\n\n"
+    "👇 Appuie sur un pack pour le voir."
+)
+SEARCH_MORE = "\n\n➕ Seuls les {shown} premiers sont affichés : précise ta recherche pour affiner."
+SEARCH_NONE = (
+    "😕 Aucun pack trouvé pour <b>{query}</b>.\n\n"
+    "💡 Essaie un autre mot, ou crée ton propre pack avec /new !"
+)
+SEARCH_CLOSE_DENIED = "⛔ Seul celui qui a lancé la recherche (ou un admin) peut fermer la liste."
+SEARCH_CLOSED = "✅ Liste fermée."
 AUTO_FINISHED_NOTE = "✅ Création terminée : <b>{done}/{want}</b> stickers"
 AUTO_PARTIAL = "\n\n⚠️ Pinterest n'a fourni que {done} images utilisables sur {want} demandées."
 AUTO_BUSY = "⏳ Un pack automatique est déjà en cours pour toi, attends qu'il se termine."

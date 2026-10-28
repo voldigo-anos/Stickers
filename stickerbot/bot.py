@@ -5,9 +5,9 @@ import html
 import logging
 import re
 
-from telegram import InputSticker, Update
+from telegram import InputSticker, LinkPreviewOptions, ReplyParameters, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, NetworkError, RetryAfter, TelegramError, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TelegramError, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -32,6 +32,9 @@ from text_renderer import normalize_color
 logger = logging.getLogger(__name__)
 
 LINK_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{2,39}$')
+
+# recherche de packs (/search)
+MAX_SEARCH_RESULTS = 20
 
 # etats de conversation (stockes dans user_data['step'])
 STEP_TITLE = 'title'
@@ -86,13 +89,13 @@ def pack_link(name: str) -> str:
     return f'https://t.me/addstickers/{name}'
 
 
-async def _send_retry(bot, chat_id, text, markup, attempts=6):
+async def _send_retry(bot, chat_id, text, markup, attempts=6, **kwargs):
     """envoie un message en reessayant si Telegram limite le debit (flood control)"""
     for attempt in range(attempts):
         try:
             return await bot.send_message(
                 chat_id, text, parse_mode=ParseMode.HTML, reply_markup=markup,
-                disable_notification=False,
+                disable_notification=False, **kwargs,
             )
         except RetryAfter as exc:
             delay = exc.retry_after
@@ -108,13 +111,16 @@ async def _send_retry(bot, chat_id, text, markup, attempts=6):
             await asyncio.sleep(2 * (attempt + 1))
 
 
-async def send_pack_card(bot, chat_id: int, name: str, text: str):
+async def send_pack_card(bot, chat_id: int, name: str, text: str, can_post: bool = False):
     """envoie le pack termine avec le bouton « Voir le pack » (pas de lien brut).
 
     Nouveau message => l'utilisateur recoit une notification.
+    can_post=True (admins du bot) : propose aussi « Poster dans la chaîne ».
     """
+    if can_post:
+        text += S.POST_HINT
     try:
-        return await _send_retry(bot, chat_id, text, kb.pack_actions(name))
+        return await _send_retry(bot, chat_id, text, kb.pack_actions(name, can_post))
     except BadRequest:
         logger.warning('clavier complet refusé, envoi du bouton « Voir le pack » seul', exc_info=True)
         return await _send_retry(bot, chat_id, text, kb.view_pack_only(name))
@@ -276,7 +282,9 @@ async def cmd_mypacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'🔢 {row["count"]} sticker(s)\n'
             f'🔗 <code>{pack_link(row["name"])}</code>'
         )
-        await update.effective_message.reply_html(text, reply_markup=kb.pack_actions(row['name']))
+        await update.effective_message.reply_html(
+            text, reply_markup=kb.pack_actions(row['name'], can_post=is_admin(update.effective_user.id))
+        )
 
 
 async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -303,6 +311,175 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += S.LEADERBOARD_ME.format(rank=rank, stickers=me['stickers'])
 
     await reply(update, text, reply_markup=kb.main_menu(is_admin(update.effective_user.id)))
+
+
+# --------------------------------------------------------------------------
+# publication d'un pack dans la chaine (ADMINS DU BOT uniquement)
+# --------------------------------------------------------------------------
+
+async def post_pack_to_channel(context: ContextTypes.DEFAULT_TYPE, pack_name: str):
+    """publie le pack dans la chaine avec le bouton « Voir le pack ».
+
+    Retourne (reussi, message a montrer a l'admin).
+    """
+    chat = config.CHANNEL_CHAT_ID
+    if not chat:
+        return False, S.POST_NO_CHANNEL
+
+    row = db.get_pack_by_name(pack_name)
+    if row:
+        title, count = row['title'], db.pack_count(row['id'])
+    else:
+        try:
+            sticker_set = await context.bot.get_sticker_set(pack_name)
+        except TelegramError:
+            return False, S.POST_NOT_FOUND
+        title, count = sticker_set.title, len(sticker_set.stickers)
+
+    try:
+        await _send_retry(
+            context.bot, chat,
+            S.CHANNEL_POST.format(title=html.escape(title), count=count),
+            kb.view_pack_only(pack_name),
+            # apercu du pack (miniature) affiche au-dessus du texte, sans lien visible
+            link_preview_options=LinkPreviewOptions(url=pack_link(pack_name), show_above_text=True),
+        )
+    except Forbidden:
+        return False, S.POST_FORBIDDEN
+    except BadRequest as exc:
+        logger.warning('publication dans la chaine refusee: %s', exc)
+        text = str(exc).lower()
+        if 'chat not found' in text or 'not found' in text:
+            return False, S.POST_BAD_CHAT
+        if 'not enough rights' in text or 'administrator' in text:
+            return False, S.POST_FORBIDDEN
+        return False, S.ERROR.format(error=html.escape(str(exc)[:150]))
+    except TelegramError as exc:
+        logger.exception('publication dans la chaine impossible')
+        return False, S.ERROR.format(error=html.escape(str(exc)[:150]))
+    return True, S.POST_DONE
+
+
+async def on_post_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """bouton « Poster dans la chaîne » : reserve aux admins du bot"""
+    query = update.callback_query
+    if not is_admin(update.effective_user.id):
+        return await query.answer(S.POST_ADMIN_ONLY, show_alert=True)
+
+    name = (query.data or '')[len('post:'):]
+    ok, message = await post_pack_to_channel(context, name)
+    plain = re.sub(r'<[^>]+>', '', html.unescape(message))[:190]
+    await query.answer(plain, show_alert=not ok)
+    if ok and query.message:
+        try:  # on retire le bouton pour eviter un double envoi par erreur
+            await query.edit_message_reply_markup(kb.pack_actions(name))
+        except TelegramError:
+            pass
+
+
+async def cmd_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/post lien_ou_nom : poste un pack dans la chaine (admins du bot uniquement)"""
+    if not is_admin(update.effective_user.id):
+        return await reply(update, S.NOT_ADMIN)
+    if not context.args:
+        return await reply(update, S.POST_USAGE)
+
+    name = context.args[0].strip().rstrip('/').rsplit('/', 1)[-1]
+    if '_by_' not in name:
+        name = f'{name}_by_{context.bot.username}'
+    ok, message = await post_pack_to_channel(context, name)
+    await reply(update, message)
+
+
+# --------------------------------------------------------------------------
+# recherche de packs (/search) — marche en prive ET dans les groupes
+# --------------------------------------------------------------------------
+
+def _search_items(rows):
+    """[(texte du bouton, nom du pack)] ; si deux packs ont le meme titre, on ajoute le lien"""
+    titles = [db._norm(r['title']) for r in rows]
+    items = []
+    for i, row in enumerate(rows, 1):
+        title = (row['title'] or '').strip() or row['name']
+        if titles.count(titles[i - 1]) > 1:
+            short = row['name'].rsplit('_by_', 1)[0]
+            label = f'{i}. {title[:26]} · {short[:22]} ({row["count"]})'
+        else:
+            label = f'{i}. {title[:44]} ({row["count"]})'
+        items.append((label, row['name']))
+    return items
+
+
+async def _reply_quote(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, markup=None):
+    """repond EN CITANT la commande (comme dans un groupe), dans le bon sujet si c'est un forum"""
+    msg = update.effective_message
+    return await context.bot.send_message(
+        msg.chat_id,
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=markup,
+        reply_parameters=ReplyParameters(message_id=msg.message_id, allow_sending_without_reply=True),
+        message_thread_id=msg.message_thread_id if msg.is_topic_message else None,
+    )
+
+
+async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not user or db.is_banned(user.id):
+        return
+
+    query = ' '.join(context.args or []).strip()[:60]
+    if not query:
+        return await _reply_quote(update, context, S.SEARCH_USAGE)
+
+    rows, total = await asyncio.to_thread(db.search_packs, query, MAX_SEARCH_RESULTS)
+    safe_query = html.escape(query)
+
+    if not rows:
+        return await _reply_quote(
+            update, context, S.SEARCH_NONE.format(query=safe_query), kb.search_results([], user.id)
+        )
+
+    text = S.SEARCH_RESULTS.format(query=f'<b>{safe_query}</b>', total=total)
+    if total > len(rows):
+        text += S.SEARCH_MORE.format(shown=len(rows))
+    await _reply_quote(update, context, text, kb.search_results(_search_items(rows), user.id))
+
+
+async def on_search_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """bouton « Fermer la liste » : celui qui a cherche, un admin du groupe ou un admin du bot"""
+    query = update.callback_query
+    user = update.effective_user
+    try:
+        owner_id = int((query.data or '').split(':', 1)[1])
+    except (IndexError, ValueError):
+        owner_id = 0
+
+    message = query.message
+    allowed = user.id == owner_id or is_admin(user.id)
+    if not allowed and message and message.chat.type != 'private':
+        try:
+            member = await context.bot.get_chat_member(message.chat.id, user.id)
+            allowed = member.status in ('administrator', 'creator')
+        except TelegramError:
+            allowed = False
+
+    if not allowed:
+        return await query.answer(S.SEARCH_CLOSE_DENIED, show_alert=True)
+
+    await query.answer()
+    if not message:
+        return
+    try:
+        await context.bot.delete_message(message.chat.id, message.message_id)
+    except TelegramError:
+        try:
+            await context.bot.edit_message_text(
+                S.SEARCH_CLOSED, chat_id=message.chat.id, message_id=message.message_id,
+                parse_mode=ParseMode.HTML,
+            )
+        except TelegramError:
+            pass
 
 
 # --------------------------------------------------------------------------
@@ -525,6 +702,7 @@ async def finish_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_pack_card(
         context.bot, update.effective_chat.id, active['name'],
         S.PACK_CARD.format(title=html.escape(active['title']), count=count),
+        can_post=is_admin(update.effective_user.id),
     )
 
 
@@ -911,7 +1089,9 @@ async def _auto_pack_job(context, user_id, active, mode, query, want, waiting):
         # 1) on envoie D'ABORD le message final (nouveau message = notification)
         #    avec le bouton « Voir le pack », en reessayant si Telegram limite le debit
         try:
-            await send_pack_card(context.bot, waiting.chat_id, active['name'], text)
+            await send_pack_card(
+                context.bot, waiting.chat_id, active['name'], text, can_post=is_admin(user_id)
+            )
         except Exception:  # noqa: BLE001
             logger.exception("envoi du message final du pack automatique impossible")
         # 2) ensuite, on met a jour le message de progression (sans importance)
@@ -1114,6 +1294,7 @@ async def post_init(app: Application):
         BotCommand('new', '✏️ Créer un pack'),
         BotCommand('mypacks', '📦 Mes packs'),
         BotCommand('top', '🏆 Classement'),
+        BotCommand('search', '🔍 Chercher un pack'),
         BotCommand('help', '❓ Aide'),
         BotCommand('cancel', '🚫 Annuler'),
     ])
@@ -1144,6 +1325,8 @@ def build_application() -> Application:
     app.add_handler(CommandHandler('new', cmd_new))
     app.add_handler(CommandHandler('mypacks', cmd_mypacks))
     app.add_handler(CommandHandler('top', cmd_top))
+    app.add_handler(CommandHandler(['search', 'recherche'], cmd_search))
+    app.add_handler(CommandHandler('post', cmd_post))
     app.add_handler(CommandHandler('cancel', cmd_cancel))
     app.add_handler(CommandHandler('admin', cmd_admin))
     app.add_handler(CommandHandler('stats', cmd_stats))
@@ -1151,12 +1334,16 @@ def build_application() -> Application:
     app.add_handler(CommandHandler('ban', cmd_ban))
     app.add_handler(CommandHandler('unban', cmd_unban))
 
+    app.add_handler(CallbackQueryHandler(on_search_close, pattern=r'^sx:'))
+    app.add_handler(CallbackQueryHandler(on_post_channel, pattern=r'^post:'))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(
-        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Sticker.ALL | filters.Document.ALL,
+        (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Sticker.ALL | filters.Document.ALL)
+        & filters.ChatType.PRIVATE,
         on_media,
     ))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    # en groupe, le bot ne reagit qu'aux commandes (sinon il repondrait a chaque message)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, on_text))
     app.add_error_handler(on_error)
 
     return app

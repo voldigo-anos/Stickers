@@ -98,6 +98,20 @@ def start_links() -> InlineKeyboardMarkup:
     )
 
 
+def search_results(items, owner_id: int) -> InlineKeyboardMarkup:
+    """liste des resultats de recherche.
+
+    items = [(texte du bouton, nom du pack), ...] : chaque bouton ouvre directement le pack.
+    """
+    rows = [
+        [InlineKeyboardButton(label, url=f'https://t.me/addstickers/{name}')]
+        for label, name in items
+    ]
+    rows.append([InlineKeyboardButton('📢 Rejoins notre chaîne', url=config.CHANNEL_URL)])
+    rows.append([InlineKeyboardButton('❌ Fermer la liste', callback_data=f'sx:{owner_id}')])
+    return InlineKeyboardMarkup(rows)
+
+
 def import_choice(set_name: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -120,7 +134,8 @@ def view_pack_only(pack_name: str) -> InlineKeyboardMarkup:
     )
 
 
-def pack_actions(pack_name: str) -> InlineKeyboardMarkup:
+def pack_actions(pack_name: str, can_post: bool = False) -> InlineKeyboardMarkup:
+    """can_post=True (admins du bot uniquement) ajoute « Poster dans la chaîne »"""
     rows = []
     use_data, wa_data, del_data = f'use:{pack_name}', f'wa:{pack_name}', f'del:{pack_name}'
     if _cb_ok(use_data):
@@ -132,6 +147,9 @@ def pack_actions(pack_name: str) -> InlineKeyboardMarkup:
         second.append(InlineKeyboardButton('🗑 Oublier', callback_data=del_data))
     if second:
         rows.append(second)
+    post_data = f'post:{pack_name}'
+    if can_post and _cb_ok(post_data):
+        rows.append([InlineKeyboardButton('📢 Poster dans la chaîne', callback_data=post_data)])
     # le bouton « Voir le pack » est TOUJOURS present
     rows.append([InlineKeyboardButton('🔗 Voir le pack', url=f'https://t.me/addstickers/{pack_name}')])
     return InlineKeyboardMarkup(rows)
