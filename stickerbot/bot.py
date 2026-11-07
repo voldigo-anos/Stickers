@@ -379,6 +379,59 @@ async def cmd_index(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply(update, '\n'.join(lines))
 
 
+_ADDSTICKERS_RE = re.compile(r'(?:https?://)?(?:t|telegram)\.me/addstickers/([A-Za-z0-9_]+)', re.I)
+
+
+def _pack_names_in_message(message) -> list:
+    """tous les packs cites dans un message : texte, legende, liens caches et boutons"""
+    found = []
+    for text in (message.text, message.caption):
+        found += _ADDSTICKERS_RE.findall(text or '')
+    for ent in list(message.entities or []) + list(message.caption_entities or []):
+        if getattr(ent, 'url', None):
+            found += _ADDSTICKERS_RE.findall(ent.url)
+    markup = message.reply_markup
+    if markup and getattr(markup, 'inline_keyboard', None):
+        for row in markup.inline_keyboard:
+            for button in row:
+                found += _ADDSTICKERS_RE.findall(button.url or '')
+    if message.sticker and message.sticker.set_name:
+        found.append(message.sticker.set_name)
+    return list({n.lower(): n for n in found}.values())
+
+
+async def _index_names(context, names, owner_id: int = 0) -> int:
+    done = 0
+    for name in names[:30]:
+        try:
+            if await adopt_pack(context, owner_id, name):
+                done += 1
+        except Exception:
+            logger.exception('indexation impossible pour %s', name)
+    return done
+
+
+async def on_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """chaque pack publie dans la chaine devient automatiquement trouvable avec /search"""
+    message = update.effective_message
+    if not message:
+        return
+    names = _pack_names_in_message(message)
+    if names:
+        count = await _index_names(context, names)
+        logger.info('chaine : %s pack(s) indexe(s)', count)
+
+
+async def on_forward_index(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """admin : transferer d'anciens posts de la chaine au bot les ajoute a la recherche"""
+    user = update.effective_user
+    names = _pack_names_in_message(update.effective_message)
+    if not names:
+        return
+    count = await _index_names(context, names, user.id)
+    await reply(update, S.INDEX_TOTAL.format(total=db.count_packs()) + f" (+{count})")
+
+
 async def post_pack_to_channel(context: ContextTypes.DEFAULT_TYPE, pack_name: str, adopt_user_id=None):
     """publie le pack dans la chaine avec le bouton « Voir le pack ».
 
@@ -498,6 +551,17 @@ async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows, total = await asyncio.to_thread(db.search_packs, query, MAX_SEARCH_RESULTS)
     safe_query = html.escape(query)
 
+    if not rows:
+        # dernier essai : le mot cherche est peut-etre le lien / nom court d'un pack
+        candidates = {_pack_name_from_arg(query.replace(' ', '_'), context.bot.username)}
+        for match in _ADDSTICKERS_RE.findall(query):
+            candidates.add(match)
+        if await _index_names(context, list(candidates)):
+            rows, total = await asyncio.to_thread(db.search_packs, query, MAX_SEARCH_RESULTS)
+            if not rows:
+                rows = [r for r in (db.get_pack_by_name(c) for c in candidates) if r]
+                rows = [dict(r, count=db.pack_count(r['id'])) for r in rows]
+                total = len(rows)
     if not rows:
         text = S.SEARCH_NONE.format(query=safe_query)
         if is_admin(user.id):
@@ -1365,6 +1429,42 @@ async def post_init(app: Application):
     ])
 
 
+def _button_labels() -> set:
+    return {v for k, v in vars(kb).items() if k.startswith('BTN_') and isinstance(v, str)}
+
+
+class _GroupActive(filters.UpdateFilter):
+    """en groupe on ne repond qu'aux boutons du menu, ou a quelqu'un qui est en train
+    de creer / modifier un pack (sinon le bot repondrait a toutes les conversations)"""
+
+    def __init__(self, media: bool = False):
+        super().__init__(name='GroupActive')
+        self.media = media
+        self.app = None
+
+    def filter(self, update):
+        message = update.effective_message
+        user = update.effective_user
+        if not message or not user or self.app is None:
+            return False
+        data = self.app.user_data.get(user.id) or {}
+        busy = bool(data.get('step') or data.get('theme_mode') or data.get('convert_mode'))
+        if self.media:
+            return busy or bool(data.get('active'))
+        text = (message.text or '').strip()
+        return text in _button_labels() or busy
+
+
+def _walk_filters(flt):
+    if flt is None:
+        return
+    yield flt
+    for attr in ('base_filter', 'and_filter', 'or_filter', 'inv_filter'):
+        sub = getattr(flt, attr, None)
+        if isinstance(sub, filters.BaseFilter):
+            yield from _walk_filters(sub)
+
+
 def build_application() -> Application:
     db.init()
 
@@ -1403,13 +1503,35 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(on_search_close, pattern=r'^sx:'))
     app.add_handler(CallbackQueryHandler(on_post_channel, pattern=r'^post:'))
     app.add_handler(CallbackQueryHandler(on_callback))
+    # posts de la chaine -> indexation automatique pour /search
+    app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POSTS, on_channel_post))
+    # admin : posts de la chaine transferes au bot -> indexation
+    app.add_handler(MessageHandler(
+        filters.FORWARDED & filters.ChatType.PRIVATE & filters.User(user_id=config.ADMINS or [0]),
+        on_forward_index,
+    ), group=1)
     app.add_handler(MessageHandler(
         (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Sticker.ALL | filters.Document.ALL)
         & filters.ChatType.PRIVATE,
         on_media,
     ))
-    # en groupe, le bot ne reagit qu'aux commandes (sinon il repondrait a chaque message)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, on_text))
+    # en groupe : boutons du menu + etapes en cours de la personne (pas les autres messages)
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS & _GroupActive(),
+        on_text,
+    ))
+    app.add_handler(MessageHandler(
+        (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Sticker.ALL | filters.Document.ALL)
+        & filters.ChatType.GROUPS & _GroupActive(media=True),
+        on_media,
+    ))
+    for group_handlers in app.handlers.values():
+        for handler in group_handlers:
+            flt = getattr(handler, 'filters', None)
+            for part in _walk_filters(flt):
+                if isinstance(part, _GroupActive):
+                    part.app = app
     app.add_error_handler(on_error)
 
     return app
