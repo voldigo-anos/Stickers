@@ -238,7 +238,7 @@ CHANNEL_POST = (
 )
 SEARCH_ADMIN_NOTE = (
     "\n\nℹ️ <i>Admin : la recherche connaît {packs} pack(s). S'il en manque (base remise à zéro "
-    "après un redéploiement), réponds à un sticker du pack avec /index.</i>"
+    "après un redéploiement), transfère-moi les anciens posts de la chaîne ou réponds à un sticker du pack avec /index.</i>"
 )
 INDEX_USAGE = (
     "🗂 <b>Ajouter des packs à la recherche</b>\n\n"
