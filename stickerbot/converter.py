@@ -25,6 +25,9 @@ WA_ANIMATED_MAX_BYTES = 500 * 1024
 SHAPE_ORIGINAL = 'original'
 SHAPE_SQUARE = 'square'
 SHAPE_ROUND = 'round'
+# carre aux coins arrondis (image pleine, coins decoupes)
+SHAPE_ROUNDED = 'rounded'
+ROUNDED_RADIUS_RATIO = 0.18
 # carre PLEIN : l'image remplit tout le 512x512 (recadrage centre, sans bords vides)
 SHAPE_COVER = 'cover'
 
@@ -82,6 +85,27 @@ def circle_mask(size: int = STICKER_SIZE) -> Image.Image:
     return mask.resize((size, size), Image.LANCZOS)
 
 
+def rounded_mask(size: int = STICKER_SIZE) -> Image.Image:
+    big = size * 4
+    mask = Image.new('L', (big, big), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, big - 1, big - 1), radius=int(big * ROUNDED_RADIUS_RATIO), fill=255
+    )
+    return mask.resize((size, size), Image.LANCZOS)
+
+
+def _shape_mask(shape: str, size: int = STICKER_SIZE) -> Image.Image:
+    return rounded_mask(size) if shape == SHAPE_ROUNDED else circle_mask(size)
+
+
+def _fit_rounded(im: Image.Image) -> Image.Image:
+    """carre plein aux coins arrondis"""
+    im = _fit_cover(im)
+    out = Image.new('RGBA', (STICKER_SIZE, STICKER_SIZE), (0, 0, 0, 0))
+    out.paste(im, (0, 0), rounded_mask(STICKER_SIZE))
+    return out
+
+
 def _fit_round(im: Image.Image) -> Image.Image:
     """remplit un cercle : on recadre au centre puis on applique un masque rond"""
     ratio = max(STICKER_SIZE / im.width, STICKER_SIZE / im.height)
@@ -105,6 +129,8 @@ def _apply_shape(im: Image.Image, shape: str) -> Image.Image:
         return _fit_round(im)
     if shape == SHAPE_COVER:
         return _fit_cover(im)
+    if shape == SHAPE_ROUNDED:
+        return _fit_rounded(im)
     return _fit_original(im)
 
 
@@ -118,6 +144,8 @@ def _wm_margin(width: int, shape: str) -> int:
     """en rond, le coin est hors du cercle : on rentre l'ecriture dans le disque"""
     if shape == SHAPE_ROUND:
         return int(width * 0.17)
+    if shape == SHAPE_ROUNDED:
+        return int(width * 0.08)
     return max(6, int(width * 0.035))
 
 
@@ -182,7 +210,7 @@ def _video_filters(tmp: str, shape: str, watermark: str, fps: int, color: str = 
         steps.append(
             f'pad={STICKER_SIZE}:{STICKER_SIZE}:(ow-iw)/2:(oh-ih)/2:color=black@0'
         )
-    elif shape == SHAPE_ROUND:
+    elif shape in (SHAPE_ROUND, SHAPE_ROUNDED):
         steps.append(
             f'scale={STICKER_SIZE}:{STICKER_SIZE}:force_original_aspect_ratio=increase'
         )
@@ -195,9 +223,9 @@ def _video_filters(tmp: str, shape: str, watermark: str, fps: int, color: str = 
     chain = f'[0:v]{",".join(steps)}[v]'
     last = '[v]'
 
-    if shape == SHAPE_ROUND:
+    if shape in (SHAPE_ROUND, SHAPE_ROUNDED):
         mask_path = os.path.join(tmp, 'mask.png')
-        gray = circle_mask(STICKER_SIZE)
+        gray = _shape_mask(shape, STICKER_SIZE)
         Image.merge('RGB', (gray, gray, gray)).save(mask_path)
         # IMPORTANT : le masque est borne a la duree max, sinon ffmpeg
         # tourne a l'infini et le sticker n'arrive jamais
@@ -229,7 +257,7 @@ def _video_filters(tmp: str, shape: str, watermark: str, fps: int, color: str = 
             chain = chain.replace(steps[0], f'scale={width}:{height}', 1)
         overlay_path = os.path.join(tmp, 'watermark.png')
         watermark_layer(width, height, watermark, shape, color).save(overlay_path)
-        overlay_index = 2 if shape == SHAPE_ROUND else 1
+        overlay_index = 2 if shape in (SHAPE_ROUND, SHAPE_ROUNDED) else 1
         inputs += ['-loop', '1', '-framerate', str(fps), '-t', str(VIDEO_MAX_SECONDS), '-i', overlay_path]
         chain += f';{last}[{overlay_index}:v]overlay=0:0:shortest=1:format=auto,format=yuva420p[vw]'
         last = '[vw]'
