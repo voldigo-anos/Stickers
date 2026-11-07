@@ -1202,7 +1202,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith('shape:'):
         shape = data.split(':', 1)[1]
-        if shape not in (converter.SHAPE_ORIGINAL, converter.SHAPE_SQUARE, converter.SHAPE_ROUND):
+        if shape not in (converter.SHAPE_ORIGINAL, converter.SHAPE_SQUARE, converter.SHAPE_ROUND, converter.SHAPE_ROUNDED):
             shape = converter.SHAPE_ORIGINAL
         await query.edit_message_text(
             S.SHAPE_CHOSEN.format(shape=S.SHAPE_LABELS[shape]), parse_mode=ParseMode.HTML
