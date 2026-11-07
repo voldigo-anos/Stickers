@@ -30,7 +30,7 @@ HELP = (
     "🤖 <b>Pack automatique</b> : choisis statique ou GIF, un thème et 60 à 120 stickers, "
     "je trouve les images sur Pinterest et je crée le pack.\n"
     "/cancel — annuler l'opération en cours\n\n"
-    "🎨 <b>Format</b> : à la création tu choisis <b>carré</b>, <b>rond</b> ou <b>original</b>.\n"
+    "🎨 <b>Format</b> : à la création tu choisis <b>carré</b>, <b>rond</b>, <b>coins arrondis</b> ou <b>original</b>.\n"
     "✍️ <b>Écriture</b> : le mot choisi est écrit en bas à gauche de <b>chaque</b> sticker du pack "
     "(statique ou vidéo), avec la couleur de ton choix. Modifiable via <b>🎨 Format &amp; écriture</b>.\n"
     "⚡ Plusieurs personnes peuvent utiliser le bot en même temps, même pendant une conversion."
@@ -61,6 +61,7 @@ ASK_SHAPE = (
     "Choisis la forme que doivent avoir <b>tous</b> les stickers de ce pack :\n\n"
     "⬛ <b>Carré</b> — image entière dans un carré 512×512\n"
     "⚪ <b>Rond</b> — découpe circulaire\n"
+    "🔲 <b>Coins arrondis</b> — carré plein aux coins arrondis\n"
     "🖼 <b>Original</b> — je garde les proportions"
 )
 
@@ -68,6 +69,7 @@ SHAPE_LABELS = {
     'original': '🖼 Original',
     'square': '⬛ Carré',
     'round': '⚪ Rond',
+    'rounded': '🔲 Coins arrondis',
     'cover': '⬛ Carré',
 }
 
