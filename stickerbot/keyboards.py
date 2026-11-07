@@ -68,6 +68,7 @@ def shape_choice() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton('⬛ Carré', callback_data='shape:square')],
             [InlineKeyboardButton('⚪ Rond', callback_data='shape:round')],
+            [InlineKeyboardButton('🔲 Coins arrondis', callback_data='shape:rounded')],
             [InlineKeyboardButton('🖼 Format original', callback_data='shape:original')],
         ]
     )
