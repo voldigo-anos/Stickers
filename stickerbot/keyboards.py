@@ -32,7 +32,7 @@ def main_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
     ]
     if is_admin:
         rows.append([KeyboardButton(BTN_ADMIN)])
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, input_field_placeholder='Choisis une option 👇')
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, selective=True, input_field_placeholder='Choisis une option 👇')
 
 
 def pack_menu() -> ReplyKeyboardMarkup:
@@ -42,7 +42,7 @@ def pack_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(BTN_STYLE)],
             [KeyboardButton(BTN_MY_PACKS), KeyboardButton(BTN_CANCEL)],
         ],
-        resize_keyboard=True,
+        resize_keyboard=True, selective=True,
         input_field_placeholder='Envoie une photo, vidéo, GIF ou sticker 📨',
     )
 
@@ -50,7 +50,7 @@ def pack_menu() -> ReplyKeyboardMarkup:
 def cancel_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [[KeyboardButton(BTN_CANCEL)]],
-        resize_keyboard=True,
+        resize_keyboard=True, selective=True,
         input_field_placeholder='En attente de ta réponse ✍️',
     )
 
@@ -58,7 +58,7 @@ def cancel_menu() -> ReplyKeyboardMarkup:
 def wm_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [[KeyboardButton(BTN_NO_WM)], [KeyboardButton(BTN_CANCEL)]],
-        resize_keyboard=True,
+        resize_keyboard=True, selective=True,
         input_field_placeholder='Écris le mot à afficher ✍️',
     )
 
@@ -184,7 +184,7 @@ def color_menu() -> ReplyKeyboardMarkup:
     labels = list(COLOR_CHOICES)
     return ReplyKeyboardMarkup(
         [[KeyboardButton(label) for label in labels[i:i + 3]] for i in range(0, len(labels), 3)]
-        + [[KeyboardButton(BTN_CANCEL)]], resize_keyboard=True,
+        + [[KeyboardButton(BTN_CANCEL)]], resize_keyboard=True, selective=True,
         input_field_placeholder='Choisis une couleur ou envoie #RRGGBB 🎨',
     )
 
@@ -203,6 +203,6 @@ def auto_count_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [[KeyboardButton('60'), KeyboardButton('80'), KeyboardButton('100'), KeyboardButton('120')],
          [KeyboardButton(BTN_CANCEL)]],
-        resize_keyboard=True,
+        resize_keyboard=True, selective=True,
         input_field_placeholder='Un nombre entre 60 et 120 🔢',
     )
