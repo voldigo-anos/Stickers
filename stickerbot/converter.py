@@ -271,21 +271,35 @@ def video_to_webm(
     shape: str = SHAPE_ORIGINAL,
     watermark: str = '',
     color: str = DEFAULT_COLOR,
+    start: float = 0.0,
 ) -> bytes:
     """convertit une video / GIF en sticker video webm VP9 (512px, 3s max, 30fps)"""
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, 'in' + suffix)
-        dst = os.path.join(tmp, 'out.webm')
         with open(src, 'wb') as fh:
             fh.write(data)
+        return encode_segment(tmp, suffix, start, shape, watermark, color)
 
-        inputs, chain, last = _video_filters(tmp, shape, watermark, 30, color, suffix)
 
-        out = b''
+def encode_segment(
+    tmp: str,
+    suffix: str,
+    start: float = 0.0,
+    shape: str = SHAPE_ORIGINAL,
+    watermark: str = '',
+    color: str = DEFAULT_COLOR,
+) -> bytes:
+    """encode le morceau [start, start+3s] de tmp/in<suffix> en sticker webm"""
+    src = os.path.join(tmp, 'in' + suffix)
+    dst = os.path.join(tmp, f'out_{int(start * 1000)}.webm')
+    inputs, chain, last = _video_filters(tmp, shape, watermark, 30, color, suffix)
+    seek = ['-ss', f'{start:.3f}'] if start > 0 else []
+    out = b''
+    try:
         for crf in (32, 40, 50):
             _run([
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
-                '-t', str(VIDEO_MAX_SECONDS), '-i', src, *inputs,
+                *seek, '-t', str(VIDEO_MAX_SECONDS), '-i', src, *inputs,
                 '-filter_complex', chain, '-map', last,
                 '-t', str(VIDEO_MAX_SECONDS),
                 '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', str(crf),
@@ -296,6 +310,34 @@ def video_to_webm(
             if len(out) <= VIDEO_MAX_BYTES:
                 return out
         return out
+    finally:
+        if os.path.exists(dst):
+            os.remove(dst)
+
+
+def video_duration(path: str) -> float:
+    """duree d'une video en secondes (0 si inconnue)"""
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=nw=1:nk=1', path],
+            capture_output=True, timeout=FFMPEG_TIMEOUT, check=True,
+        )
+        return float(probe.stdout.strip() or 0)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def segment_starts(duration: float, step: float = VIDEO_MAX_SECONDS) -> list:
+    """debuts des morceaux de 3 s couvrant toute la video (dernier morceau >= 0.5 s)"""
+    starts = []
+    t = 0.0
+    while t < duration:
+        if starts and duration - t < 0.5:
+            break
+        starts.append(round(t, 3))
+        t += step
+    return starts or [0.0]
 
 
 def any_to_animated_webp(

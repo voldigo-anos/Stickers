@@ -270,3 +270,24 @@ SEARCH_CLOSED = "✅ Liste fermée."
 AUTO_FINISHED_NOTE = "✅ Création terminée : <b>{done}/{want}</b> stickers"
 AUTO_PARTIAL = "\n\n⚠️ Pinterest n'a fourni que {done} images utilisables sur {want} demandées."
 AUTO_BUSY = "⏳ Un pack automatique est déjà en cours pour toi, attends qu'il se termine."
+
+SPLIT_START = (
+    "🎬 <b>Vidéo longue détectée</b> ({duration})\n\n"
+    "Je la découpe en morceaux de 3 secondes (le maximum autorisé par Telegram pour un sticker vidéo) : "
+    "environ <b>{parts}</b> stickers.\n"
+    "Si le pack atteint {max} stickers, j'en crée automatiquement un nouveau et je continue."
+)
+SPLIT_PROGRESS = "🎬 Découpage en cours : <b>{done}/{parts}</b> stickers — pack actuel : <b>{title}</b>"
+SPLIT_PACK_FULL = "📦 Le pack <b>{title}</b> est plein ({count} stickers). Je continue dans un nouveau pack 👇"
+SPLIT_DONE = (
+    "✅ <b>Vidéo entièrement transformée !</b>\n\n"
+    "🎞 Stickers créés : <b>{done}</b>{failed}\n"
+    "📦 Packs utilisés : <b>{packs}</b>"
+)
+SPLIT_FAILED_PART = " (⚠️ {failed} morceau(x) raté(s))"
+SPLIT_STOPPED = "⛔ Découpage arrêté : <b>{done}</b> stickers créés."
+SPLIT_BUSY = "⏳ Une vidéo est déjà en cours de découpage pour toi. Attends qu'elle se termine ou arrête-la."
+SPLIT_TOO_BIG = (
+    "⚠️ Cette vidéo pèse <b>{size} Mo</b>. Telegram ne laisse pas les bots télécharger plus de <b>20 Mo</b>.\n\n"
+    "💡 Compresse la vidéo ou coupe-la en plusieurs parties de moins de 20 Mo, puis renvoie-les une par une."
+)

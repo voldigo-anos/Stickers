@@ -206,3 +206,7 @@ def auto_count_menu() -> ReplyKeyboardMarkup:
         resize_keyboard=True, selective=True,
         input_field_placeholder='Un nombre entre 60 et 120 🔢',
     )
+
+
+def split_stop() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton('⛔ Arrêter le découpage', callback_data='split:stop')]])

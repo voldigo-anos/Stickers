@@ -46,6 +46,10 @@ STEP_AUTO_QUERY = 'auto_query'
 STEP_AUTO_COUNT = 'auto_count'
 
 _auto_running = set()
+_split_running = {}  # user_id -> {'stop': bool}
+
+SPLIT_MIN_SECONDS = 3.5  # au-dela, la video est decoupee en plusieurs stickers
+BOT_MAX_DOWNLOAD = 20 * 1024 * 1024
 
 # les conversions ffmpeg/PIL sont lourdes : on limite le nombre simultane
 # (mais on ne bloque JAMAIS la boucle d'evenements -> les autres users
@@ -905,6 +909,13 @@ async def add_one(update: Update, context: ContextTypes.DEFAULT_TYPE, media):
     if not active:
         return await reply(update, S.NO_ACTIVE_PACK, reply_markup=kb.main_menu(is_admin(update.effective_user.id)))
 
+    if media[0] == 'anim':
+        duration, size = _media_duration_size(update.effective_message)
+        if size and size > BOT_MAX_DOWNLOAD:
+            return await reply(update, S.SPLIT_TOO_BIG.format(size=round(size / 1024 / 1024, 1)))
+        if duration is None or duration > SPLIT_MIN_SECONDS:
+            return await start_split(update, context, media, duration)
+
     if active['id'] and db.pack_count(active['id']) >= config.MAX_STICKERS_PER_PACK:
         return await reply(update, S.PACK_FULL.format(max=config.MAX_STICKERS_PER_PACK))
 
@@ -938,6 +949,180 @@ async def _add_one_job(context, user_id, active, media, waiting):
             await waiting.edit_text(S.ERROR.format(error=html.escape(str(exc)[:200])), parse_mode=ParseMode.HTML)
         except TelegramError:
             pass
+
+
+
+# --------------------------------------------------------------------------
+# videos longues -> decoupage en stickers de 3 s, nouveau pack quand plein
+# --------------------------------------------------------------------------
+
+def _media_duration_size(message):
+    """(duree en s ou None si inconnue, taille en octets ou 0)"""
+    m = message.video or message.animation
+    if m:
+        return (m.duration or None), (m.file_size or 0)
+    if message.document:
+        return None, (message.document.file_size or 0)
+    return None, 0
+
+
+def _fmt_duration(seconds: float) -> str:
+    seconds = int(seconds)
+    h, rest = divmod(seconds, 3600)
+    m, s = divmod(rest, 60)
+    return f'{h}h{m:02d}min{s:02d}s' if h else f'{m}min{s:02d}s'
+
+
+def next_pack_name(active, bot_username: str):
+    """nom + titre du pack suivant : monpack_2_by_bot, « Titre 2 »..."""
+    base = active.get('split_base') or re.sub(r'_\d+$', '', active['name'].rsplit('_by_', 1)[0])
+    title_base = active.get('split_title') or re.sub(r' \d+$', '', active['title'])
+    n = active.get('split_n', 1) + 1
+    while True:
+        name = f'{base}_{n}_by_{bot_username}'
+        if len(name) > 64:
+            base = base[: max(1, len(base) - (len(name) - 64))]
+            continue
+        if not db.get_pack_by_name(name):
+            return base, title_base, n, name, f'{title_base} {n}'[:64]
+        n += 1
+
+
+def _roll_pack(active, bot_username: str):
+    """remplace (en place) le pack actif par un nouveau pack vide de meme style"""
+    base, title_base, n, name, title = next_pack_name(active, bot_username)
+    active.update({
+        'name': name, 'title': title, 'created': False, 'id': None,
+        'split_base': base, 'split_title': title_base, 'split_n': n,
+    })
+
+
+async def start_split(update, context, media, duration):
+    user_id = update.effective_user.id
+    if user_id in _split_running:
+        return await reply(update, S.SPLIT_BUSY)
+    active = context.user_data['active']
+    state = {'stop': False}
+    _split_running[user_id] = state
+    parts = len(converter.segment_starts(duration)) if duration else '?'
+    waiting = await reply(
+        update,
+        S.SPLIT_START.format(
+            duration=_fmt_duration(duration) if duration else 'durée inconnue',
+            parts=parts, max=config.MAX_STICKERS_PER_PACK,
+        ),
+        reply_markup=kb.split_stop(),
+    )
+    context.application.create_task(
+        _split_job(context, user_id, update.effective_chat.id, active, media, waiting, state)
+    )
+
+
+async def _split_job(context, user_id, chat_id, active, media, waiting, state):
+    import os
+    import tempfile
+    kind, file_id, unique_id, suffix, emoji, _ = media
+    shape = active.get('shape', converter.SHAPE_ORIGINAL)
+    watermark = (active.get('watermark') or '').strip()
+    color = active.get('watermark_color', '#FFFFFF')
+    done = failed = 0
+    packs = {active['name']}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, 'in' + suffix)
+            tg_file = await context.bot.get_file(file_id)
+            await tg_file.download_to_drive(src)
+            duration = await asyncio.to_thread(converter.video_duration, src)
+            starts = converter.segment_starts(duration)
+            parts = len(starts)
+
+            for i, start in enumerate(starts):
+                if state['stop']:
+                    break
+                key = f'{unique_id}_s{i}'
+                # pack plein -> carte du pack termine + nouveau pack
+                if active['id'] and db.pack_count(active['id']) >= config.MAX_STICKERS_PER_PACK:
+                    await _announce_full(context, chat_id, active, user_id)
+                    _roll_pack(active, context.bot.username)
+                    packs.add(active['name'])
+                if active['id'] and db.has_sticker(active['id'], key):
+                    continue
+                try:
+                    data = await run_convert(
+                        converter.encode_segment, tmp, suffix, start, shape, watermark, color
+                    )
+                    sticker = InputSticker(sticker=data, emoji_list=[emoji], format='video')
+                    async with user_lock(user_id):
+                        try:
+                            await push_sticker(context, active, sticker, user_id)
+                        except BadRequest as exc:
+                            msg = str(exc).lower()
+                            if active['created'] and ('too much' in msg or 'too_much' in msg):
+                                # Telegram dit que le pack est plein : on bascule
+                                await _announce_full(context, chat_id, active, user_id)
+                                _roll_pack(active, context.bot.username)
+                                packs.add(active['name'])
+                                await push_sticker(context, active, sticker, user_id)
+                            elif not active['created'] and 'occupied' in msg:
+                                _roll_pack(active, context.bot.username)
+                                packs.add(active['name'])
+                                await push_sticker(context, active, sticker, user_id)
+                            else:
+                                raise
+                        db.add_sticker(active['id'], key)
+                    done += 1
+                except RetryAfter as exc:
+                    await asyncio.sleep(exc.retry_after + 1)
+                    failed += 1
+                except Exception:  # noqa: BLE001 - un morceau rate ne bloque pas la suite
+                    logger.warning('morceau video %s ignore', i, exc_info=True)
+                    failed += 1
+                if done and done % 10 == 0:
+                    try:
+                        await waiting.edit_text(
+                            S.SPLIT_PROGRESS.format(done=done, parts=parts, title=html.escape(active['title'])),
+                            parse_mode=ParseMode.HTML, reply_markup=kb.split_stop(),
+                        )
+                    except TelegramError:
+                        pass
+                await asyncio.sleep(0.4)  # reste sous les limites de Telegram
+
+        if state['stop']:
+            text = S.SPLIT_STOPPED.format(done=done)
+        else:
+            text = S.SPLIT_DONE.format(
+                done=done, packs=len(packs),
+                failed=S.SPLIT_FAILED_PART.format(failed=failed) if failed else '',
+            )
+        try:
+            await waiting.edit_text(text, parse_mode=ParseMode.HTML)
+        except TelegramError:
+            pass
+        if active.get('created'):
+            await send_pack_card(
+                context.bot, chat_id, active['name'],
+                S.PACK_CARD.format(title=html.escape(active['title']), count=db.pack_count(active['id'])),
+                can_post=is_admin(user_id),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('decoupage video echoue')
+        try:
+            await waiting.edit_text(S.ERROR.format(error=html.escape(str(exc)[:200])), parse_mode=ParseMode.HTML)
+        except TelegramError:
+            pass
+    finally:
+        _split_running.pop(user_id, None)
+
+
+async def _announce_full(context, chat_id, active, user_id):
+    try:
+        await send_pack_card(
+            context.bot, chat_id, active['name'],
+            S.SPLIT_PACK_FULL.format(title=html.escape(active['title']), count=db.pack_count(active['id'])),
+            can_post=is_admin(user_id),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception('annonce pack plein impossible')
 
 
 
@@ -1248,6 +1433,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data or ''
+
+    if data == 'split:stop':
+        state = _split_running.get(update.effective_user.id)
+        if state:
+            state['stop'] = True
+        return await query.edit_message_reply_markup(None)
 
     if data.startswith('auto:'):
         mode = data[5:]
