@@ -1022,7 +1022,8 @@ async def _split_job(context, user_id, chat_id, active, media, waiting, state):
     import os
     import tempfile
     kind, file_id, unique_id, suffix, emoji, _ = media
-    shape = active.get('shape', converter.SHAPE_ORIGINAL)
+    # decoupage : forme carree pleine imposee, comme le pack automatique
+    shape = converter.SHAPE_COVER
     watermark = (active.get('watermark') or '').strip()
     color = active.get('watermark_color', '#FFFFFF')
     done = failed = 0
