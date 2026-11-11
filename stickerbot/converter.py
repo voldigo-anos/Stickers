@@ -11,7 +11,7 @@ import tempfile
 from io import BytesIO
 
 from PIL import Image, ImageDraw
-from text_renderer import DEFAULT_COLOR, render_text
+from text_renderer import DEFAULT_COLOR, render_text, render_text_frames
 from wa_validation import validate_webp
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,9 @@ SHAPE_ROUNDED = 'rounded'
 ROUNDED_RADIUS_RATIO = 0.18
 # carre PLEIN : l'image remplit tout le 512x512 (recadrage centre, sans bords vides)
 SHAPE_COVER = 'cover'
+
+WM_CLASSIC = 'classic'
+WM_ANIMATED = 'animated'
 
 FFMPEG_TIMEOUT = 120
 
@@ -194,7 +197,7 @@ def image_to_webp(data: bytes, shape: str = SHAPE_ORIGINAL, watermark: str = '',
 # videos
 # --------------------------------------------------------------------------
 
-def _video_filters(tmp: str, shape: str, watermark: str, fps: int, color: str = DEFAULT_COLOR, suffix: str = ".mp4") -> list:
+def _video_filters(tmp: str, shape: str, watermark: str, fps: int, color: str = DEFAULT_COLOR, suffix: str = ".mp4", style: str = WM_CLASSIC) -> list:
     """construit les arguments -filter_complex pour ffmpeg"""
     steps = [f'scale={STICKER_SIZE}:{STICKER_SIZE}:force_original_aspect_ratio=decrease']
 
@@ -256,9 +259,23 @@ def _video_filters(tmp: str, shape: str, watermark: str, fps: int, color: str = 
             # Explicit dimensions keep the overlay aligned with the video.
             chain = chain.replace(steps[0], f'scale={width}:{height}', 1)
         overlay_path = os.path.join(tmp, 'watermark.png')
-        watermark_layer(width, height, watermark, shape, color).save(overlay_path)
+        if style == WM_ANIMATED:
+            layer = watermark_layer(width, height, watermark, shape, color)
+            bounds = layer.getbbox()
+            if bounds:
+                label = layer.crop(bounds)
+                # Animated style is more legible; the classic renderer is unchanged.
+                label.putalpha(label.getchannel('A').point(lambda a: min(255, round(a / WM_TEXT_ALPHA))))
+                frames = render_text_frames(label, width, height, bounds[0], bounds[1], fps, VIDEO_MAX_SECONDS)
+            else:
+                frames = [layer] * (fps * VIDEO_MAX_SECONDS)
+            for index, frame in enumerate(frames):
+                frame.save(os.path.join(tmp, f'wm_{index:03d}.png'))
+            overlay_path = os.path.join(tmp, 'wm_%03d.png')
+        else:
+            watermark_layer(width, height, watermark, shape, color).save(overlay_path)
         overlay_index = 2 if shape in (SHAPE_ROUND, SHAPE_ROUNDED) else 1
-        inputs += ['-loop', '1', '-framerate', str(fps), '-t', str(VIDEO_MAX_SECONDS), '-i', overlay_path]
+        inputs += ([] if style == WM_ANIMATED else ['-loop', '1']) + ['-framerate', str(fps), '-t', str(VIDEO_MAX_SECONDS), '-i', overlay_path]
         chain += f';{last}[{overlay_index}:v]overlay=0:0:shortest=1:format=auto,format=yuva420p[vw]'
         last = '[vw]'
 
@@ -272,13 +289,14 @@ def video_to_webm(
     watermark: str = '',
     color: str = DEFAULT_COLOR,
     start: float = 0.0,
+    style: str = WM_CLASSIC,
 ) -> bytes:
     """convertit une video / GIF en sticker video webm VP9 (512px, 3s max, 30fps)"""
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, 'in' + suffix)
         with open(src, 'wb') as fh:
             fh.write(data)
-        return encode_segment(tmp, suffix, start, shape, watermark, color)
+        return encode_segment(tmp, suffix, start, shape, watermark, color, style)
 
 
 def encode_segment(
@@ -288,11 +306,12 @@ def encode_segment(
     shape: str = SHAPE_ORIGINAL,
     watermark: str = '',
     color: str = DEFAULT_COLOR,
+    style: str = WM_CLASSIC,
 ) -> bytes:
     """encode le morceau [start, start+3s] de tmp/in<suffix> en sticker webm"""
     src = os.path.join(tmp, 'in' + suffix)
     dst = os.path.join(tmp, f'out_{int(start * 1000)}.webm')
-    inputs, chain, last = _video_filters(tmp, shape, watermark, 30, color, suffix)
+    inputs, chain, last = _video_filters(tmp, shape, watermark, 30, color, suffix, style)
     seek = ['-ss', f'{start:.3f}'] if start > 0 else []
     out = b''
     try:
@@ -309,7 +328,7 @@ def encode_segment(
             out = open(dst, 'rb').read()
             if len(out) <= VIDEO_MAX_BYTES:
                 return out
-        return out
+        raise ValueError('Impossible de compresser ce sticker vidéo sous 256 Ko. Essaie un extrait plus simple.')
     finally:
         if os.path.exists(dst):
             os.remove(dst)
@@ -469,3 +488,25 @@ def photo_to_motion_mp4(data: bytes) -> bytes:
             '-frames:v', str(frames), '-pix_fmt', 'yuv420p', '-c:v', 'libx264', dst,
         ])
         return open(dst, 'rb').read()
+
+
+def image_to_animated_webm(data, shape=SHAPE_ORIGINAL, watermark='', color=DEFAULT_COLOR):
+    """A still photo with animated writing becomes a three-second video sticker."""
+    image = Image.open(BytesIO(data)).convert('RGBA')
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, 'still.png')
+        image.save(src)
+        # Preserve alpha and aspect ratio without an intermediate lossy movie.
+        image.save(os.path.join(tmp, 'in.png'))
+        inputs, chain, last = _video_filters(tmp, shape, watermark, 30, color, '.png', WM_ANIMATED)
+        dst = os.path.join(tmp, 'still.webm')
+        for crf in (32, 40, 50):
+            _run(['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                  '-loop', '1', '-framerate', '30', '-t', str(VIDEO_MAX_SECONDS), '-i', src,
+                  *inputs, '-filter_complex', chain, '-map', last,
+                  '-t', str(VIDEO_MAX_SECONDS), '-c:v', 'libvpx-vp9', '-b:v', '0',
+                  '-crf', str(crf), '-an', '-pix_fmt', 'yuva420p', dst])
+            output = open(dst, 'rb').read()
+            if len(output) <= VIDEO_MAX_BYTES:
+                return output
+        raise ValueError('Impossible de compresser ce sticker vidéo sous 256 Ko.')

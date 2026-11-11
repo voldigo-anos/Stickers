@@ -51,6 +51,7 @@ def init():
         )
         # migrations : forme du sticker + ecriture (watermark) par pack
         for column, ddl in (
+            ('watermark_style', "ALTER TABLE packs ADD COLUMN watermark_style TEXT NOT NULL DEFAULT 'classic'"),
             ('watermark_color', "ALTER TABLE packs ADD COLUMN watermark_color TEXT NOT NULL DEFAULT '#FFFFFF'"),
             ('shape', "ALTER TABLE packs ADD COLUMN shape TEXT NOT NULL DEFAULT 'original'"),
             ('watermark', "ALTER TABLE packs ADD COLUMN watermark TEXT NOT NULL DEFAULT ''"),
@@ -101,16 +102,16 @@ def all_user_ids():
 
 # ---------- packs ----------
 
-def add_pack(user_id: int, name: str, title: str, shape: str = 'original', watermark: str = '', watermark_color: str = '#FFFFFF') -> int:
+def add_pack(user_id: int, name: str, title: str, shape: str = 'original', watermark: str = '', watermark_color: str = '#FFFFFF', watermark_style: str = 'classic') -> int:
     return _exec(
-        'INSERT INTO packs (user_id, name, title, shape, watermark, watermark_color, created_at) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?)',
-        (user_id, name, title, shape, watermark or '', watermark_color, int(time.time())),
+        'INSERT INTO packs (user_id, name, title, shape, watermark, watermark_color, watermark_style, created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        (user_id, name, title, shape, watermark or '', watermark_color, watermark_style, int(time.time())),
     )
 
 
-def set_pack_style(pack_id: int, shape: str, watermark: str, watermark_color: str = '#FFFFFF'):
-    _exec('UPDATE packs SET shape = ?, watermark = ?, watermark_color = ? WHERE id = ?', (shape, watermark or '', watermark_color, pack_id))
+def set_pack_style(pack_id: int, shape: str, watermark: str, watermark_color: str = '#FFFFFF', watermark_style: str = 'classic'):
+    _exec('UPDATE packs SET shape = ?, watermark = ?, watermark_color = ?, watermark_style = ? WHERE id = ?', (shape, watermark or '', watermark_color, watermark_style, pack_id))
 
 
 def get_pack(user_id: int, name: str):

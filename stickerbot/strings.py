@@ -291,3 +291,12 @@ SPLIT_TOO_BIG = (
     "⚠️ Cette vidéo pèse <b>{size} Mo</b>. Telegram ne laisse pas les bots télécharger plus de <b>20 Mo</b>.\n\n"
     "💡 Compresse la vidéo ou coupe-la en plusieurs parties de moins de 20 Mo, puis renvoie-les une par une."
 )
+
+
+ASK_WM_STYLE = (
+    "✍️ <b>Style de l’écriture</b>\n\n"
+    "✍️ Classique : ton écriture discrète habituelle.\n"
+    "✨ Animée : le texte apparaît, disparaît puis les lettres retombent, en boucle.\n"
+    "Toujours <b>en bas à gauche</b>. Avec le style animé, les photos deviennent des stickers vidéo."
+)
+WM_STYLE_LABELS = {'classic': '✍️ Classique', 'animated': '✨ Animée'}

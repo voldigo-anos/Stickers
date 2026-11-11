@@ -28,3 +28,13 @@
 - [x] Choix statique / GIF, thème de recherche, 60 à 120 stickers.
 - [x] GIF trouvés via Pinterest (recherche « … gif »), photos animées en secours.
 - [ ] Tester un pack complet dans Telegram après redéploiement.
+
+# Deux styles d’écriture
+- [x] Conserver le rendu classique et ajouter le choix animé après la couleur.
+- [x] Appliquer le style aux photos, vidéos, packs automatiques et découpage long.
+- [x] Enregistrer le style par pack, avec classique pour les packs existants.
+- [ ] Tester le choix et les conversions puis envoyer sur GitHub.
+- [ ] Vérifier dans Telegram après redéploiement Render (accès au bot requis).
+
+# Améliorations précédentes non enregistrées
+- [ ] Reprendre le détourage, les emojis personnalisés, les liens vidéo et les sauvegardes après livraison des deux styles.

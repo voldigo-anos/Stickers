@@ -210,3 +210,15 @@ def auto_count_menu() -> ReplyKeyboardMarkup:
 
 def split_stop() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton('⛔ Arrêter le découpage', callback_data='split:stop')]])
+
+
+BTN_WM_CLASSIC = '✍️ Écriture classique'
+BTN_WM_ANIMATED = '✨ Écriture animée'
+WM_STYLES = {BTN_WM_CLASSIC: 'classic', BTN_WM_ANIMATED: 'animated'}
+
+
+def writing_style_menu():
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton(BTN_WM_CLASSIC), KeyboardButton(BTN_WM_ANIMATED)],
+         [KeyboardButton(BTN_CANCEL)]], resize_keyboard=True, selective=True,
+    )

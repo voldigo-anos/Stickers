@@ -42,6 +42,7 @@ STEP_LINK = 'link'
 STEP_SHAPE = 'shape'
 STEP_WM = 'watermark'
 STEP_COLOR = 'watermark_color'
+STEP_WM_STYLE = 'watermark_style'
 STEP_AUTO_QUERY = 'auto_query'
 STEP_AUTO_COUNT = 'auto_count'
 
@@ -194,6 +195,7 @@ async def build_input_sticker(context, kind, file_id, suffix, emoji, active) -> 
     shape = active.get('shape', converter.SHAPE_ORIGINAL)
     watermark = (active.get('watermark') or '').strip()
     color = active.get('watermark_color', '#FFFFFF')
+    style = active.get('watermark_style', converter.WM_CLASSIC)
 
     if kind == 'animated':
         # les .tgs (stickers animes Telegram) ne peuvent pas etre retouches
@@ -205,10 +207,13 @@ async def build_input_sticker(context, kind, file_id, suffix, emoji, active) -> 
     raw = await download(context, file_id)
 
     if kind in ('photo', 'static'):
+        if style == converter.WM_ANIMATED and watermark:
+            data = await run_convert(converter.image_to_animated_webm, raw, shape, watermark, color)
+            return InputSticker(sticker=data, emoji_list=[emoji], format='video')
         data = await run_convert(converter.image_to_webp, raw, shape, watermark, color)
         return InputSticker(sticker=data, emoji_list=[emoji], format='static')
 
-    data = await run_convert(converter.video_to_webm, raw, suffix, shape, watermark, color)
+    data = await run_convert(converter.video_to_webm, raw, suffix, shape, watermark, color, 0.0, style)
     return InputSticker(sticker=data, emoji_list=[emoji], format='video')
 
 
@@ -227,6 +232,7 @@ async def push_sticker(context, active, input_sticker, user_id) -> None:
             active.get('shape', converter.SHAPE_ORIGINAL),
             active.get('watermark', ''),
             active.get('watermark_color', '#FFFFFF'),
+            active.get('watermark_style', converter.WM_CLASSIC),
         )
 
     else:
@@ -737,7 +743,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             return await reply(update, S.BAD_COLOR, reply_markup=kb.color_menu())
         await reply(update, S.COLOR_CHOSEN.format(color=html.escape(color_name)))
-        return await finish_style(update, context, color)
+        context.user_data['watermark_color'] = color
+        context.user_data['step'] = STEP_WM_STYLE
+        return await reply(update, S.ASK_WM_STYLE, reply_markup=kb.writing_style_menu())
+
+    if step == STEP_WM_STYLE:
+        style = kb.WM_STYLES.get(text)
+        if style is None:
+            return await reply(update, S.ASK_WM_STYLE, reply_markup=kb.writing_style_menu())
+        return await finish_style(update, context, context.user_data.pop('watermark_color', '#FFFFFF'), style)
 
 
     await reply(update, S.NO_ACTIVE_PACK, reply_markup=kb.main_menu(is_admin(user.id)))
@@ -764,7 +778,7 @@ async def apply_watermark(update: Update, context: ContextTypes.DEFAULT_TYPE, te
     return await finish_style(update, context, '#FFFFFF')
 
 
-async def finish_style(update, context, color):
+async def finish_style(update, context, color, style=converter.WM_CLASSIC):
     auto = context.user_data.get('auto')
     if auto and auto.get('name') and auto.get('count'):
         watermark = (context.user_data.pop('watermark', '') or '').strip()
@@ -777,7 +791,7 @@ async def finish_style(update, context, color):
             except ValueError as exc:
                 context.user_data['step'] = STEP_WM
                 return await reply(update, f'⚠️ {html.escape(str(exc))}', reply_markup=kb.wm_menu())
-        return await start_auto_pack(update, context, auto['name'], auto, watermark, color)
+        return await start_auto_pack(update, context, auto['name'], auto, watermark, color, style)
 
     text = context.user_data.pop('watermark', '')
     shape = context.user_data.pop('shape', converter.SHAPE_ORIGINAL)
@@ -796,14 +810,16 @@ async def finish_style(update, context, color):
             'shape': shape,
             'watermark': watermark,
             'watermark_color': color,
+            'watermark_style': style,
         }
         context.user_data['active'] = active
     elif active:
         active['shape'] = shape
         active['watermark'] = watermark
         active['watermark_color'] = color
+        active['watermark_style'] = style
         if active.get('id'):
-            db.set_pack_style(active['id'], shape, watermark, color)
+            db.set_pack_style(active['id'], shape, watermark, color, style)
     else:
         return await reply(update, S.NO_ACTIVE_PACK, reply_markup=kb.main_menu(is_admin(update.effective_user.id)))
 
@@ -813,7 +829,7 @@ async def finish_style(update, context, color):
             title=html.escape(active['title']),
             link=pack_link(active['name']),
             shape=S.SHAPE_LABELS[shape],
-            wm=html.escape(watermark) + ' · ' + kb.color_label(color) if watermark else 'aucune',
+            wm=html.escape(watermark) + ' · ' + kb.color_label(color) + ' · ' + S.WM_STYLE_LABELS[style] if watermark else 'aucune',
         ),
         reply_markup=kb.pack_menu(),
     )
@@ -1026,6 +1042,7 @@ async def _split_job(context, user_id, chat_id, active, media, waiting, state):
     shape = converter.SHAPE_COVER
     watermark = (active.get('watermark') or '').strip()
     color = active.get('watermark_color', '#FFFFFF')
+    style = active.get('watermark_style', converter.WM_CLASSIC)
     done = failed = 0
     packs = {active['name']}
     try:
@@ -1050,7 +1067,7 @@ async def _split_job(context, user_id, chat_id, active, media, waiting, state):
                     continue
                 try:
                     data = await run_convert(
-                        converter.encode_segment, tmp, suffix, start, shape, watermark, color
+                        converter.encode_segment, tmp, suffix, start, shape, watermark, color, style
                     )
                     sticker = InputSticker(sticker=data, emoji_list=[emoji], format='video')
                     async with user_lock(user_id):
@@ -1320,7 +1337,7 @@ async def _theme_job(context, chat_id, file_id, waiting):
 # pack automatique (Pinterest)
 # --------------------------------------------------------------------------
 
-async def start_auto_pack(update, context, name, auto, watermark='', color='#FFFFFF'):
+async def start_auto_pack(update, context, name, auto, watermark='', color='#FFFFFF', style=converter.WM_CLASSIC):
     user_id = update.effective_user.id
     if user_id in _auto_running:
         return await reply(update, S.AUTO_BUSY)
@@ -1333,6 +1350,7 @@ async def start_auto_pack(update, context, name, auto, watermark='', color='#FFF
         'shape': converter.SHAPE_COVER,
         'watermark': watermark,
         'watermark_color': color,
+        'watermark_style': style,
     }
     context.user_data.clear()
     waiting = await reply(
@@ -1349,8 +1367,12 @@ async def _auto_sticker(url, mode, is_backup, active):
     shape = active.get('shape', converter.SHAPE_COVER)
     watermark = (active.get('watermark') or '').strip()
     color = active.get('watermark_color', '#FFFFFF')
+    style = active.get('watermark_style', converter.WM_CLASSIC)
     raw = await asyncio.to_thread(pinterest.fetch, url)
     if mode == pinterest.MODE_STATIC:
+        if style == converter.WM_ANIMATED and watermark:
+            data = await run_convert(converter.image_to_animated_webm, raw, shape, watermark, color)
+            return InputSticker(sticker=data, emoji_list=['🙂'], format='video')
         data = await run_convert(converter.image_to_webp, raw, shape, watermark, color)
         return InputSticker(sticker=data, emoji_list=['🙂'], format='static')
     if is_backup:
@@ -1358,7 +1380,7 @@ async def _auto_sticker(url, mode, is_backup, active):
         suffix = '.mp4'
     else:
         suffix = '.gif'
-    data = await run_convert(converter.video_to_webm, raw, suffix, shape, watermark, color)
+    data = await run_convert(converter.video_to_webm, raw, suffix, shape, watermark, color, 0.0, style)
     return InputSticker(sticker=data, emoji_list=['🙂'], format='video')
 
 
@@ -1490,6 +1512,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'shape': (row['shape'] if 'shape' in row.keys() else None) or converter.SHAPE_ORIGINAL,
             'watermark': (row['watermark'] if 'watermark' in row.keys() else '') or '',
             'watermark_color': row['watermark_color'] if 'watermark_color' in row.keys() else '#FFFFFF',
+            'watermark_style': row['watermark_style'] if 'watermark_style' in row.keys() else converter.WM_CLASSIC,
         }
         await query.edit_message_text(
             S.PACK_READY.format(

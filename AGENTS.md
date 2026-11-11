@@ -13,3 +13,5 @@
 - Validate final decoded WhatsApp media at conversion and archive boundaries through wa_validation; encoder settings alone do not guarantee importer compliance.
 - Generate Android theme wallpapers with WPS/JPEG/WPE framing because Telegram computes its wallpaper offset from WPS, not a serialized offset field.
 - Keep WhatsApp choice callbacks short and resolve source pack names from user_data because Telegram callback payloads have a byte limit.
+- Store writing style per pack with a classic default and pass it through every Telegram conversion path so resumed packs and long-video segments retain the chosen style.
+- Animate slices of the shaped Unicode label rather than rendering individual characters so connected scripts and decorative letters keep their layout.

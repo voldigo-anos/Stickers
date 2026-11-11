@@ -50,3 +50,45 @@ def render_text(text: str, max_width: int, max_height: int, size: int, color: st
     buffer = BytesIO()
     surface.write_to_png(buffer)
     return Image.open(BytesIO(buffer.getvalue())).convert('RGBA').crop((0, 0, int(width + 4.999), int(height + 4.999)))
+
+
+def render_text_frames(label, width, height, x, y, fps=15, seconds=3):
+    """Animate slices of the already-shaped label; Unicode layout stays intact.
+
+    Complete text, disappearance, shuffled falling letters, then complete text.
+    The final baseline and left edge never move.
+    """
+    import random
+    frames = []
+    # Split at transparent columns so connected scripts keep their shaping.
+    alpha = label.getchannel('A')
+    spans, start = [], None
+    for column in range(label.width):
+        occupied = alpha.crop((column, 0, column + 1, label.height)).getbbox() is not None
+        if occupied and start is None:
+            start = column
+        elif not occupied and start is not None:
+            spans.append((start, column))
+            start = None
+    if start is not None:
+        spans.append((start, label.width))
+    order = list(range(len(spans)))
+    random.Random(42).shuffle(order)
+    ranks = {index: rank for rank, index in enumerate(order)}
+    for number in range(fps * seconds):
+        t = number / fps
+        frame = Image.new('RGBA', (width, height))
+        if t < .45 or t >= 2.4:
+            frame.alpha_composite(label, (x, y))
+        elif t >= .7:
+            for index, (left, right) in enumerate(spans):
+                begin = .7 + ranks[index] / max(1, len(spans)) * 1.05
+                progress = min(1., max(0., (t - begin) / .5))
+                if progress <= 0:
+                    continue
+                tile = label.crop((left, 0, right, label.height))
+                tile.putalpha(tile.getchannel('A').point(lambda value: int(value * progress)))
+                offset = round((1 - progress) ** 2 * min(y, label.height * 2))
+                frame.alpha_composite(tile, (x + left, y - offset))
+        frames.append(frame)
+    return frames
