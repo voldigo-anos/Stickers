@@ -1251,6 +1251,15 @@ async def _fx_pack_job(context, user_id, chat_id, set_name, effect):
                 logger.warning('retouche sticker echouee: %s', exc)
                 failed += 1
             await asyncio.sleep(0.6)
+    # Telegram garde l'ancienne image en cache : on envoie les nouvelles versions
+    # directement dans le chat pour que le resultat soit visible tout de suite.
+    if done:
+        try:
+            fresh = await context.bot.get_sticker_set(set_name)
+            for st in fresh.stickers[:3]:
+                await context.bot.send_sticker(chat_id, st.file_id)
+        except Exception:  # noqa: BLE001
+            logger.exception('apercu de la retouche impossible')
     try:
         await _send_retry(
             context.bot, chat_id,
