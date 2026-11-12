@@ -1209,6 +1209,58 @@ async def _import_full_pack_job(context, user_id, chat_id, active, set_name):
 
 
 
+async def fx_sticker(context, st, effect):
+    """retouche un sticker du pack ; None pour les .tgs (non modifiables)"""
+    if st.is_animated:
+        return None
+    raw = await download(context, st.file_id)
+    if st.is_video:
+        data = await run_convert(converter.apply_effect_video, raw, effect, '.webm')
+        fmt = 'video'
+    else:
+        data = await run_convert(converter.apply_effect_static, raw, effect)
+        fmt = 'static'
+    return InputSticker(sticker=data, emoji_list=[st.emoji or '🙂'], format=fmt)
+
+
+async def _fx_pack_job(context, user_id, chat_id, set_name, effect):
+    """remplace chaque sticker du pack par sa version retouchee, a la meme place"""
+    try:
+        source = await context.bot.get_sticker_set(set_name)
+    except TelegramError as exc:
+        return await context.bot.send_message(
+            chat_id, S.ERROR.format(error=html.escape(str(exc)[:200])), parse_mode=ParseMode.HTML
+        )
+    done = skipped = failed = 0
+    async with user_lock(user_id):
+        for st in source.stickers:
+            try:
+                new = await fx_sticker(context, st, effect)
+                if new is None:
+                    skipped += 1
+                    continue
+                await context.bot.replace_sticker_in_set(
+                    user_id=user_id, name=set_name, old_sticker=st.file_id, sticker=new
+                )
+                done += 1
+            except RetryAfter as exc:
+                delay = exc.retry_after
+                await asyncio.sleep((delay.total_seconds() if hasattr(delay, 'total_seconds') else float(delay)) + 1)
+                failed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning('retouche sticker echouee: %s', exc)
+                failed += 1
+            await asyncio.sleep(0.6)
+    try:
+        await _send_retry(
+            context.bot, chat_id,
+            S.FX_DONE.format(effect=S.FX_LABELS[effect], done=done, skipped=skipped, failed=failed),
+            kb.view_pack_only(set_name),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception('envoi du message de retouche terminée impossible')
+
+
 # --------------------------------------------------------------------------
 # WhatsApp
 # --------------------------------------------------------------------------
@@ -1489,6 +1541,28 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith('imp:'):
         return await import_full_pack(update, context, data[4:])
+
+    if data.startswith('fx:'):
+        name = data[3:]
+        if not db.get_pack(update.effective_user.id, name):
+            return await query.edit_message_text(S.FX_NOT_OWNER, parse_mode=ParseMode.HTML)
+        context.user_data['fx_pack'] = name
+        return await context.bot.send_message(
+            update.effective_chat.id, S.FX_ASK, parse_mode=ParseMode.HTML, reply_markup=kb.fx_choice()
+        )
+
+    if data.startswith('fxq:'):
+        effect = data[4:]
+        name = context.user_data.pop('fx_pack', None)
+        if effect not in (converter.FX_HD, converter.FX_BW) or not name:
+            return await query.edit_message_text(S.CANCELLED, parse_mode=ParseMode.HTML)
+        await query.edit_message_text(
+            S.FX_START.format(effect=S.FX_LABELS[effect]), parse_mode=ParseMode.HTML
+        )
+        context.application.create_task(
+            _fx_pack_job(context, update.effective_user.id, update.effective_chat.id, name, effect)
+        )
+        return
 
 
     if data == 'imp_one':

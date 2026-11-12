@@ -148,6 +148,9 @@ def pack_actions(pack_name: str, can_post: bool = False) -> InlineKeyboardMarkup
         second.append(InlineKeyboardButton('🗑 Oublier', callback_data=del_data))
     if second:
         rows.append(second)
+    fx_data = f'fx:{pack_name}'
+    if _cb_ok(fx_data):
+        rows.append([InlineKeyboardButton('🎨 Retoucher tout le pack', callback_data=fx_data)])
     post_data = f'post:{pack_name}'
     if can_post and _cb_ok(post_data):
         rows.append([InlineKeyboardButton('📢 Poster dans la chaîne', callback_data=post_data)])
@@ -221,4 +224,15 @@ def writing_style_menu():
     return ReplyKeyboardMarkup(
         [[KeyboardButton(BTN_WM_CLASSIC), KeyboardButton(BTN_WM_ANIMATED)],
          [KeyboardButton(BTN_CANCEL)]], resize_keyboard=True, selective=True,
+    )
+
+
+def fx_choice() -> InlineKeyboardMarkup:
+    """le nom du pack est garde dans user_data (limite de 64 octets)"""
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton('✨ Qualité HD (plus net)', callback_data='fxq:hd')],
+            [InlineKeyboardButton('⚫ Noir et blanc', callback_data='fxq:bw')],
+            [InlineKeyboardButton('🚫 Annuler', callback_data='fxq:no')],
+        ]
     )

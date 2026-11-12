@@ -300,3 +300,10 @@ ASK_WM_STYLE = (
     "Toujours <b>en bas à gauche</b>. Avec le style animé, les photos deviennent des stickers vidéo."
 )
 WM_STYLE_LABELS = {'classic': '✍️ Classique', 'animated': '✨ Animée'}
+
+
+FX_ASK = "🎨 <b>Retoucher tout le pack</b>\n\nChoisis l'effet à appliquer à <b>tous</b> les stickers (statiques et vidéo) :"
+FX_LABELS = {'hd': '✨ Qualité HD', 'bw': '⚫ Noir et blanc'}
+FX_START = "⏳ {effect} en cours sur tout le pack... Je te préviens à la fin."
+FX_DONE = "✅ Pack retouché !\n\n🎨 Effet : {effect}\n✔️ Modifiés : {done}\n⏭ Ignorés (.tgs animés) : {skipped}\n❌ Échecs : {failed}"
+FX_NOT_OWNER = "❌ Tu ne peux retoucher que tes propres packs."

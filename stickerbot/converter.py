@@ -510,3 +510,74 @@ def image_to_animated_webm(data, shape=SHAPE_ORIGINAL, watermark='', color=DEFAU
             if len(output) <= VIDEO_MAX_BYTES:
                 return output
         raise ValueError('Impossible de compresser ce sticker vidéo sous 256 Ko.')
+
+
+# --------------------------------------------------------------------------
+# retouche de tout un pack : qualite HD ou noir & blanc
+# --------------------------------------------------------------------------
+
+FX_HD = 'hd'
+FX_BW = 'bw'
+STATIC_MAX_BYTES = 500 * 1024
+
+
+def _fx_image(im: Image.Image, effect: str) -> Image.Image:
+    from PIL import ImageEnhance, ImageFilter, ImageOps
+    im = im.convert('RGBA')
+    alpha = im.getchannel('A')
+    rgb = im.convert('RGB')
+    if effect == FX_BW:
+        rgb = ImageOps.autocontrast(ImageOps.grayscale(rgb), cutoff=1).convert('RGB')
+    else:
+        # reconstruction : agrandissement x2, nettete, puis retour a 512 pour des contours fins
+        big = rgb.resize((rgb.width * 2, rgb.height * 2), Image.LANCZOS)
+        big = big.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
+        rgb = big.resize(rgb.size, Image.LANCZOS)
+        rgb = rgb.filter(ImageFilter.UnsharpMask(radius=1, percent=60, threshold=1))
+        rgb = ImageEnhance.Contrast(rgb).enhance(1.06)
+        rgb = ImageEnhance.Color(rgb).enhance(1.12)
+    out = rgb.convert('RGBA')
+    out.putalpha(alpha)
+    return out
+
+
+def apply_effect_static(data: bytes, effect: str) -> bytes:
+    """retouche un sticker statique en gardant sa taille et sa transparence"""
+    im = _fx_image(Image.open(BytesIO(data)), effect)
+    if max(im.size) != STICKER_SIZE:
+        im = _fit_original(im)
+    for quality in (100, 95, 90, 80):
+        out = BytesIO()
+        im.save(out, 'WEBP', quality=quality, method=6)
+        if len(out.getvalue()) <= STATIC_MAX_BYTES:
+            return out.getvalue()
+    return out.getvalue()
+
+
+def video_effect_filter(effect: str) -> str:
+    if effect == FX_BW:
+        return 'hue=s=0,eq=contrast=1.08'
+    # debruitage leger + nettete + couleurs plus vives
+    return 'hqdn3d=1.2:1.2:4:4,unsharp=5:5:0.9:5:5:0.0,eq=contrast=1.05:saturation=1.15'
+
+
+def apply_effect_video(data: bytes, effect: str, suffix: str = '.webm') -> bytes:
+    """retouche un sticker video (webm VP9) en gardant la transparence"""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, 'in' + suffix)
+        dst = os.path.join(tmp, 'out.webm')
+        with open(src, 'wb') as fh:
+            fh.write(data)
+        decoder = ['-c:v', 'libvpx-vp9'] if suffix == '.webm' else []
+        chain = f'{video_effect_filter(effect)},format=yuva420p'
+        for crf in (22, 30, 38, 48):
+            _run([
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                *decoder, '-i', src, '-t', str(VIDEO_MAX_SECONDS),
+                '-vf', chain, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', str(crf),
+                '-an', '-pix_fmt', 'yuva420p', '-f', 'webm', dst,
+            ])
+            out = open(dst, 'rb').read()
+            if len(out) <= VIDEO_MAX_BYTES:
+                return out
+        raise ValueError('sticker vidéo trop lourd après retouche')
