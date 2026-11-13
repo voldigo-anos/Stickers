@@ -21,13 +21,19 @@ BTN_NO_WM = '🚫 Sans écriture'
 BTN_CONVERT = '🔄 Convertir en WhatsApp'
 BTN_THEME = '🌈 Créer un thème'
 BTN_AUTO = '🤖 Pack automatique'
+BTN_TXT = '💬 Texte sur sticker'
+BTN_NOBG = '✂️ Enlever le fond'
+BTN_AI = '🪄 Sticker IA'
+BTN_MANAGE = '🗂 Gérer mes packs'
 
 
 def main_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(BTN_NEW), KeyboardButton(BTN_MY_PACKS)],
         [KeyboardButton(BTN_CONVERT), KeyboardButton(BTN_THEME)],
-        [KeyboardButton(BTN_AUTO)],
+        [KeyboardButton(BTN_AUTO), KeyboardButton(BTN_AI)],
+        [KeyboardButton(BTN_TXT), KeyboardButton(BTN_NOBG)],
+        [KeyboardButton(BTN_MANAGE)],
         [KeyboardButton(BTN_TOP), KeyboardButton(BTN_HELP)],
     ]
     if is_admin:
@@ -40,6 +46,7 @@ def pack_menu() -> ReplyKeyboardMarkup:
         [
             [KeyboardButton(BTN_DONE), KeyboardButton(BTN_WA)],
             [KeyboardButton(BTN_STYLE)],
+            [KeyboardButton(BTN_TXT), KeyboardButton(BTN_NOBG), KeyboardButton(BTN_AI)],
             [KeyboardButton(BTN_MY_PACKS), KeyboardButton(BTN_CANCEL)],
         ],
         resize_keyboard=True, selective=True,

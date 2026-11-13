@@ -27,6 +27,7 @@ import strings as S
 import pinterest
 import themes
 import wastickers
+import extras
 from text_renderer import normalize_color
 
 logger = logging.getLogger(__name__)
@@ -1831,6 +1832,7 @@ def build_application() -> Application:
     )
 
 
+    extras.register(app)
     app.add_handler(CommandHandler('start', cmd_start))
     app.add_handler(CommandHandler('help', cmd_help))
     app.add_handler(CommandHandler('new', cmd_new))

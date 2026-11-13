@@ -33,6 +33,12 @@ HELP = (
     "🎨 <b>Format</b> : à la création tu choisis <b>carré</b>, <b>rond</b>, <b>coins arrondis</b> ou <b>original</b>.\n"
     "✍️ <b>Écriture</b> : le mot choisi est écrit en bas à gauche de <b>chaque</b> sticker du pack "
     "(statique ou vidéo), avec la couleur de ton choix. Modifiable via <b>🎨 Format &amp; écriture</b>.\n"
+    "\n<b>Nouveautés</b>\n"
+    "💬 <b>Texte sur sticker</b> : envoie une photo puis ton texte.\n"
+    "✂️ <b>Enlever le fond</b> : je garde seulement la personne ou l'objet.\n"
+    "🪄 <b>Sticker IA</b> : décris ton idée, je la dessine.\n"
+    "🗂 <b>Gérer mes packs</b> : supprimer ou déplacer un sticker, renommer ou supprimer un pack.\n"
+    "➡️ Si un pack est ouvert, le nouveau sticker y est ajouté, sinon je te l'envoie.\n\n"
     "⚡ Plusieurs personnes peuvent utiliser le bot en même temps, même pendant une conversion."
 )
 

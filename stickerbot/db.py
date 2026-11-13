@@ -115,6 +115,10 @@ def set_pack_style(pack_id: int, shape: str, watermark: str, watermark_color: st
     _exec('UPDATE packs SET shape = ?, watermark = ?, watermark_color = ?, watermark_style = ? WHERE id = ?', (shape, watermark or '', watermark_color, watermark_style, pack_id))
 
 
+def rename_pack(pack_id: int, title: str):
+    _exec('UPDATE packs SET title = ? WHERE id = ?', (title, pack_id))
+
+
 def get_pack(user_id: int, name: str):
     return _exec('SELECT * FROM packs WHERE user_id = ? AND name = ?', (user_id, name), 'one')
 

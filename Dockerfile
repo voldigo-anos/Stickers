@@ -8,6 +8,9 @@ RUN apt-get update && \
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+# modele pour enlever le fond, telecharge a l'avance
+ENV U2NET_HOME=/usr/src/app/.u2net
+RUN python -c "from rembg import new_session; new_session('u2netp')"
 
 COPY main.py ./
 COPY stickerbot ./stickerbot
