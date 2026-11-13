@@ -50,3 +50,15 @@ class PackEffects(unittest.TestCase):
         self.assertIn('fx:abc_by_bot', datas)
         choices = [b.callback_data for row in keyboards.fx_choice().inline_keyboard for b in row]
         self.assertEqual(choices, ['fxq:hd', 'fxq:bw', 'fxq:no'])
+
+
+class RenderChoiceTest(unittest.TestCase):
+    def test_render_choice_offers_normal_hd_bw(self):
+        data = [b.callback_data for row in keyboards.render_choice().inline_keyboard for b in row]
+        self.assertEqual(data, ['fxn:normal', 'fxn:hd', 'fxn:bw'])
+
+    def test_hd_makes_colors_more_vivid(self):
+        src = sticker((150, 90, 80, 255))
+        out = Image.open(BytesIO(converter.apply_effect_static(src, converter.FX_HD))).convert('RGB')
+        r, g, b = out.getpixel((256, 256))
+        self.assertGreater(r - b, 150 - 80 + 15)

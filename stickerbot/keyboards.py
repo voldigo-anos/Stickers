@@ -236,3 +236,14 @@ def fx_choice() -> InlineKeyboardMarkup:
             [InlineKeyboardButton('🚫 Annuler', callback_data='fxq:no')],
         ]
     )
+
+
+def render_choice() -> InlineKeyboardMarkup:
+    """rendu choisi avant la creation du pack"""
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton('🙂 Normal', callback_data='fxn:normal')],
+            [InlineKeyboardButton('✨ HD (plus net, couleurs éclatantes)', callback_data='fxn:hd')],
+            [InlineKeyboardButton('⚫ Noir et blanc', callback_data='fxn:bw')],
+        ]
+    )

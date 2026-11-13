@@ -40,6 +40,7 @@ MAX_SEARCH_RESULTS = 20
 STEP_TITLE = 'title'
 STEP_LINK = 'link'
 STEP_SHAPE = 'shape'
+STEP_RENDER = 'render'
 STEP_WM = 'watermark'
 STEP_COLOR = 'watermark_color'
 STEP_WM_STYLE = 'watermark_style'
@@ -183,10 +184,28 @@ def styled(active) -> bool:
     return bool(
         active.get('shape', converter.SHAPE_ORIGINAL) != converter.SHAPE_ORIGINAL
         or (active.get('watermark') or '').strip()
+        or active.get('fx')
     )
 
 
+async def with_fx(input_sticker: InputSticker, active) -> InputSticker:
+    """applique le rendu HD / noir et blanc choisi a la creation du pack"""
+    fx = active.get('fx')
+    if fx not in (converter.FX_HD, converter.FX_BW) or not isinstance(input_sticker.sticker, (bytes, bytearray)):
+        return input_sticker
+    data = bytes(input_sticker.sticker)
+    if input_sticker.format == 'video':
+        data = await run_convert(converter.apply_effect_video, data, fx, '.webm')
+    else:
+        data = await run_convert(converter.apply_effect_static, data, fx)
+    return InputSticker(sticker=data, emoji_list=input_sticker.emoji_list, format=input_sticker.format)
+
+
 async def build_input_sticker(context, kind, file_id, suffix, emoji, active) -> InputSticker:
+    return await with_fx(await _build_raw_sticker(context, kind, file_id, suffix, emoji, active), active)
+
+
+async def _build_raw_sticker(context, kind, file_id, suffix, emoji, active) -> InputSticker:
     """prepare un InputSticker en appliquant la forme et l'ecriture du pack.
 
     Les stickers existants passent par leur file_id quand aucun style n'est
@@ -724,12 +743,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if auto and auto.get('count'):
             # pack automatique : forme carree imposee, on demande juste l'ecriture
             auto['name'] = name
-            context.user_data['step'] = STEP_WM
-            return await reply(update, S.ASK_WM, reply_markup=kb.wm_menu())
+        else:
+            context.user_data['draft'] = {'name': name, 'title': context.user_data.get('title', 'Mon pack')}
+        context.user_data['step'] = STEP_RENDER
+        return await reply(update, S.ASK_RENDER, reply_markup=kb.render_choice())
 
-        context.user_data['step'] = STEP_SHAPE
-        context.user_data['draft'] = {'name': name, 'title': context.user_data.get('title', 'Mon pack')}
-        return await reply(update, S.ASK_SHAPE, reply_markup=kb.shape_choice())
+    if step == STEP_RENDER:
+        return await reply(update, S.ASK_RENDER, reply_markup=kb.render_choice())
 
     if step == STEP_WM:
         if len(text) > 100:
@@ -811,6 +831,7 @@ async def finish_style(update, context, color, style=converter.WM_CLASSIC):
             'watermark': watermark,
             'watermark_color': color,
             'watermark_style': style,
+            'fx': context.user_data.pop('render_fx', None),
         }
         context.user_data['active'] = active
     elif active:
@@ -830,6 +851,7 @@ async def finish_style(update, context, color, style=converter.WM_CLASSIC):
             link=pack_link(active['name']),
             shape=S.SHAPE_LABELS[shape],
             wm=html.escape(watermark) + ' · ' + kb.color_label(color) + ' · ' + S.WM_STYLE_LABELS[style] if watermark else 'aucune',
+            render=S.RENDER_LABELS[active.get('fx') or 'normal'],
         ),
         reply_markup=kb.pack_menu(),
     )
@@ -1412,6 +1434,7 @@ async def start_auto_pack(update, context, name, auto, watermark='', color='#FFF
         'watermark': watermark,
         'watermark_color': color,
         'watermark_style': style,
+        'fx': context.user_data.get('render_fx'),
     }
     context.user_data.clear()
     waiting = await reply(
@@ -1425,6 +1448,10 @@ async def start_auto_pack(update, context, name, auto, watermark='', color='#FFF
 
 
 async def _auto_sticker(url, mode, is_backup, active):
+    return await with_fx(await _auto_raw_sticker(url, mode, is_backup, active), active)
+
+
+async def _auto_raw_sticker(url, mode, is_backup, active):
     shape = active.get('shape', converter.SHAPE_COVER)
     watermark = (active.get('watermark') or '').strip()
     color = active.get('watermark_color', '#FFFFFF')
@@ -1539,6 +1566,22 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.effective_chat.id, '✍️', reply_markup=kb.cancel_menu()
         )
 
+    if data.startswith('fxn:'):
+        render = data.split(':', 1)[1]
+        if render not in S.RENDER_LABELS:
+            render = 'normal'
+        context.user_data['render_fx'] = None if render == 'normal' else render
+        await query.edit_message_text(
+            S.RENDER_CHOSEN.format(render=S.RENDER_LABELS[render]), parse_mode=ParseMode.HTML
+        )
+        auto = context.user_data.get('auto')
+        chat_id = update.effective_chat.id
+        if auto and auto.get('name') and auto.get('count'):
+            context.user_data['step'] = STEP_WM
+            return await context.bot.send_message(chat_id, S.ASK_WM, parse_mode=ParseMode.HTML, reply_markup=kb.wm_menu())
+        context.user_data['step'] = STEP_SHAPE
+        return await context.bot.send_message(chat_id, S.ASK_SHAPE, parse_mode=ParseMode.HTML, reply_markup=kb.shape_choice())
+
     if data.startswith('shape:'):
         shape = data.split(':', 1)[1]
         if shape not in (converter.SHAPE_ORIGINAL, converter.SHAPE_SQUARE, converter.SHAPE_ROUND, converter.SHAPE_ROUNDED):
@@ -1603,6 +1646,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 link=pack_link(row['name']),
                 shape=S.SHAPE_LABELS[context.user_data['active']['shape']],
                 wm=html.escape(context.user_data['active']['watermark']) or 'aucune',
+                render=S.RENDER_LABELS['normal'],
             ),
             parse_mode=ParseMode.HTML,
         )

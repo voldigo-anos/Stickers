@@ -89,7 +89,8 @@ PACK_READY = (
     "📦 <b>{title}</b>\n"
     "🔗 <code>{link}</code>\n"
     "🎨 Format : <b>{shape}</b>\n"
-    "✍️ Écriture : <b>{wm}</b>\n\n"
+    "✍️ Écriture : <b>{wm}</b>\n"
+    "🎨 Rendu : <b>{render}</b>\n\n"
     "📨 Envoie-moi maintenant tes <b>photos</b> 🖼, <b>vidéos</b> 🎬, <b>GIF</b> 🎞 ou <b>stickers</b> 🧩.\n"
     "Quand tu as fini, appuie sur <b>✅ Terminer</b>."
 )
@@ -306,4 +307,7 @@ FX_ASK = "🎨 <b>Retoucher tout le pack</b>\n\nChoisis l'effet à appliquer à 
 FX_LABELS = {'hd': '✨ Qualité HD', 'bw': '⚫ Noir et blanc'}
 FX_START = "⏳ {effect} en cours sur tout le pack... Je te préviens à la fin."
 FX_DONE = "✅ Pack retouché !\n\n🎨 Effet : {effect}\n✔️ Modifiés : {done}\n⏭ Ignorés (.tgs animés) : {skipped}\n❌ Échecs : {failed}\n\nℹ️ <i>Si ton pack affiche encore l'ancienne version, ferme puis rouvre Telegram : l'appli garde les anciennes images en mémoire quelques minutes.</i>"
+ASK_RENDER = "🎨 <b>Rendu des stickers</b>\n\nAvant de commencer, choisis comment tous les stickers de ce pack seront rendus (photos, vidéos, GIF et stickers) :"
+RENDER_LABELS = {'normal': '🙂 Normal', 'hd': '✨ HD', 'bw': '⚫ Noir et blanc'}
+RENDER_CHOSEN = "✅ Rendu choisi : <b>{render}</b>"
 FX_NOT_OWNER = "❌ Tu ne peux retoucher que tes propres packs."

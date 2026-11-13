@@ -530,12 +530,15 @@ def _fx_image(im: Image.Image, effect: str) -> Image.Image:
         rgb = ImageOps.autocontrast(ImageOps.grayscale(rgb), cutoff=1).convert('RGB')
     else:
         # reconstruction : agrandissement x2, nettete, puis retour a 512 pour des contours fins
+        # HD bien visible : lissage du bruit, nettete forte, couleurs eclatantes
         big = rgb.resize((rgb.width * 2, rgb.height * 2), Image.LANCZOS)
-        big = big.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
+        big = big.filter(ImageFilter.MedianFilter(3))
+        big = big.filter(ImageFilter.UnsharpMask(radius=3, percent=180, threshold=2))
         rgb = big.resize(rgb.size, Image.LANCZOS)
-        rgb = rgb.filter(ImageFilter.UnsharpMask(radius=1, percent=60, threshold=1))
-        rgb = ImageEnhance.Contrast(rgb).enhance(1.06)
-        rgb = ImageEnhance.Color(rgb).enhance(1.12)
+        rgb = rgb.filter(ImageFilter.UnsharpMask(radius=1, percent=110, threshold=1))
+        rgb = ImageEnhance.Contrast(rgb).enhance(1.15)
+        rgb = ImageEnhance.Color(rgb).enhance(1.45)
+        rgb = ImageEnhance.Brightness(rgb).enhance(1.04)
     out = rgb.convert('RGBA')
     out.putalpha(alpha)
     return out
@@ -558,7 +561,7 @@ def video_effect_filter(effect: str) -> str:
     if effect == FX_BW:
         return 'hue=s=0,eq=contrast=1.08'
     # debruitage leger + nettete + couleurs plus vives
-    return 'hqdn3d=1.2:1.2:4:4,unsharp=5:5:0.9:5:5:0.0,eq=contrast=1.05:saturation=1.15'
+    return 'hqdn3d=1.5:1.5:6:6,unsharp=5:5:1.6:3:3:0.6,eq=contrast=1.15:saturation=1.5:brightness=0.03'
 
 
 def apply_effect_video(data: bytes, effect: str, suffix: str = '.webm') -> bytes:
@@ -570,7 +573,7 @@ def apply_effect_video(data: bytes, effect: str, suffix: str = '.webm') -> bytes
             fh.write(data)
         decoder = ['-c:v', 'libvpx-vp9'] if suffix == '.webm' else []
         chain = f'{video_effect_filter(effect)},format=yuva420p'
-        for crf in (22, 30, 38, 48):
+        for crf in (18, 26, 34, 44):
             _run([
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                 *decoder, '-i', src, '-t', str(VIDEO_MAX_SECONDS),
