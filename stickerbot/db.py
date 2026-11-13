@@ -55,6 +55,7 @@ def init():
             ('watermark_color', "ALTER TABLE packs ADD COLUMN watermark_color TEXT NOT NULL DEFAULT '#FFFFFF'"),
             ('shape', "ALTER TABLE packs ADD COLUMN shape TEXT NOT NULL DEFAULT 'original'"),
             ('watermark', "ALTER TABLE packs ADD COLUMN watermark TEXT NOT NULL DEFAULT ''"),
+            ('fx', "ALTER TABLE packs ADD COLUMN fx TEXT NOT NULL DEFAULT ''"),
         ):
             try:
                 _conn.execute(ddl)
@@ -102,11 +103,11 @@ def all_user_ids():
 
 # ---------- packs ----------
 
-def add_pack(user_id: int, name: str, title: str, shape: str = 'original', watermark: str = '', watermark_color: str = '#FFFFFF', watermark_style: str = 'classic') -> int:
+def add_pack(user_id: int, name: str, title: str, shape: str = 'original', watermark: str = '', watermark_color: str = '#FFFFFF', watermark_style: str = 'classic', fx: str = '') -> int:
     return _exec(
-        'INSERT INTO packs (user_id, name, title, shape, watermark, watermark_color, watermark_style, created_at) '
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        (user_id, name, title, shape, watermark or '', watermark_color, watermark_style, int(time.time())),
+        'INSERT INTO packs (user_id, name, title, shape, watermark, watermark_color, watermark_style, fx, created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        (user_id, name, title, shape, watermark or '', watermark_color, watermark_style, fx or '', int(time.time())),
     )
 
 
