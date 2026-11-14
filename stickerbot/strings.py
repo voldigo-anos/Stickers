@@ -102,7 +102,19 @@ PACK_READY = (
 )
 
 
-ADDED = "✅ Ajouté ! 🔢 <b>{count}</b> sticker(s) dans <b>{title}</b>"
+ADDED = "✅ Ajouté ! 🔢 <b>{count}</b> sticker(s) dans <b>{title}</b>{progress}"
+WORKING_QUEUE = "⏳ Traitement en cours... ({progress})\nLe bot reste disponible pour tout le monde 🙂"
+PROGRESS_LINE = "✅ {done} fait(s) · ⏳ {left} restant(s){failed}"
+PROGRESS_FAILED = " · ❌ {failed} raté(s)"
+ACTIVE_PACK_CARD = (
+    "🛠 <b>Pack en cours : {title}</b>\n"
+    "🔢 {count} sticker(s) dans le pack\n"
+    "{progress}\n"
+    "🔗 <code>{link}</code>"
+)
+ACTIVE_NOT_CREATED = "📭 Le pack sera créé dès que le premier sticker sera prêt."
+ACTIVE_SPLIT = "🎬 Découpage vidéo : <b>{done}/{parts}</b> stickers"
+
 DUPLICATE = "♻️ Ce sticker est <b>déjà</b> dans le pack — je ne l'ajoute pas deux fois."
 PACK_FULL = "⚠️ Pack plein ({max} stickers max). Crée un nouveau pack ✏️"
 NO_ACTIVE_PACK = (
