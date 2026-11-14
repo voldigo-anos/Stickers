@@ -303,10 +303,43 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply(update, S.ASK_TITLE, reply_markup=kb.cancel_menu())
 
 
+def _progress(active) -> str:
+    """« ✅ 3 fait(s) · ⏳ 2 restant(s) » pour les photos/videos envoyees au pack en cours"""
+    q = active.get('queued', 0)
+    done = active.get('done_n', 0)
+    failed = active.get('failed_n', 0)
+    return S.PROGRESS_LINE.format(
+        done=done, left=max(0, q - done - failed),
+        failed=S.PROGRESS_FAILED.format(failed=failed) if failed else '',
+    )
+
+
 async def cmd_mypacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     packs = db.user_packs(update.effective_user.id)
-    if not packs:
+    active = context.user_data.get('active')
+    if not packs and not active:
         return await reply(update, S.NO_ACTIVE_PACK, reply_markup=kb.main_menu(is_admin(update.effective_user.id)))
+
+    if active:
+        # le pack en cours est TOUJOURS affiche, meme s'il n'est pas encore cree chez Telegram
+        count = db.pack_count(active['id']) if active.get('id') else 0
+        lines = [_progress(active)]
+        split = active.get('split_progress')
+        if split:
+            lines.append(S.ACTIVE_SPLIT.format(**split))
+        if not active.get('created'):
+            lines.append(S.ACTIVE_NOT_CREATED)
+        text = S.ACTIVE_PACK_CARD.format(
+            title=html.escape(active['title']), count=count,
+            progress='\n'.join(lines), link=pack_link(active['name']),
+        )
+        if active.get('created'):
+            await update.effective_message.reply_html(text, reply_markup=kb.view_pack_only(active['name']))
+        else:
+            await update.effective_message.reply_html(text)
+        packs = [p for p in packs if p['name'] != active['name']]
+        if not packs:
+            return
 
     await reply(update, f'📦 <b>Tes packs</b> — {len(packs)} au total')
     for row in packs[:20]:
@@ -964,7 +997,8 @@ async def add_one(update: Update, context: ContextTypes.DEFAULT_TYPE, media):
     if active['id'] and db.has_sticker(active['id'], media[2]):
         return await reply(update, S.DUPLICATE)
 
-    waiting = await reply(update, S.WORKING)
+    active['queued'] = active.get('queued', 0) + 1
+    waiting = await reply(update, S.WORKING_QUEUE.format(progress=_progress(active)))
     context.application.create_task(
         _add_one_job(context, update.effective_user.id, active, media, waiting)
     )
@@ -975,18 +1009,22 @@ async def _add_one_job(context, user_id, active, media, waiting):
     try:
         async with user_lock(user_id):
             if active['id'] and db.has_sticker(active['id'], unique_id):
+                active['queued'] = max(0, active.get('queued', 0) - 1)
                 return await waiting.edit_text(S.DUPLICATE, parse_mode=ParseMode.HTML)
             input_sticker = await build_input_sticker(context, kind, file_id, suffix, emoji, active)
             await push_sticker(context, active, input_sticker, user_id)
             db.add_sticker(active['id'], unique_id)
+        active['done_n'] = active.get('done_n', 0) + 1
 
         await waiting.edit_text(
-            S.ADDED.format(count=db.pack_count(active['id']), title=html.escape(active['title'])),
+            S.ADDED.format(count=db.pack_count(active['id']), title=html.escape(active['title']),
+                           progress='\n' + _progress(active)),
             parse_mode=ParseMode.HTML,
             reply_markup=kb.view_pack_only(active['name']),
         )
     except Exception as exc:  # noqa: BLE001 - l'utilisateur doit TOUJOURS avoir une reponse
         logger.exception('ajout impossible')
+        active['failed_n'] = active.get('failed_n', 0) + 1
         try:
             await waiting.edit_text(S.ERROR.format(error=html.escape(str(exc)[:200])), parse_mode=ParseMode.HTML)
         except TelegramError:
@@ -1079,6 +1117,7 @@ async def _split_job(context, user_id, chat_id, active, media, waiting, state):
             duration = await asyncio.to_thread(converter.video_duration, src)
             starts = converter.segment_starts(duration)
             parts = len(starts)
+            active['split_progress'] = {'done': 0, 'parts': parts}
 
             for i, start in enumerate(starts):
                 if state['stop']:
@@ -1121,6 +1160,7 @@ async def _split_job(context, user_id, chat_id, active, media, waiting, state):
                 except Exception:  # noqa: BLE001 - un morceau rate ne bloque pas la suite
                     logger.warning('morceau video %s ignore', i, exc_info=True)
                     failed += 1
+                active['split_progress'] = {'done': done, 'parts': parts}
                 if done and done % 10 == 0:
                     try:
                         await waiting.edit_text(
@@ -1155,6 +1195,7 @@ async def _split_job(context, user_id, chat_id, active, media, waiting, state):
         except TelegramError:
             pass
     finally:
+        active.pop('split_progress', None)
         _split_running.pop(user_id, None)
 
 
