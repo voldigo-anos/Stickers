@@ -29,6 +29,7 @@ import themes
 import wastickers
 import extras
 from text_renderer import normalize_color
+from presentation import PresentationRequest
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +280,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await reply(
         update,
-        S.START.format(name=user.first_name or 'toi'),
+        S.START.format(name=html.escape(user.first_name or 'toi')),
         reply_markup=kb.main_menu(is_admin(user.id)),
     )
     await update.effective_message.reply_html(
@@ -1863,12 +1864,11 @@ def build_application() -> Application:
         # plusieurs mises a jour traitees en parallele : un utilisateur qui
         # convertit un gros pack ne bloque plus les autres
         .concurrent_updates(config.CONCURRENT_UPDATES)
-        .connection_pool_size(config.CONNECTION_POOL_SIZE)
-        .pool_timeout(60.0)
-        .read_timeout(60.0)
-        .write_timeout(120.0)
-        .connect_timeout(30.0)
-        .media_write_timeout(180.0)
+        .request(PresentationRequest(
+            connection_pool_size=config.CONNECTION_POOL_SIZE,
+            pool_timeout=60.0, read_timeout=60.0, write_timeout=120.0,
+            connect_timeout=30.0, media_write_timeout=180.0,
+        ))
         .build()
     )
 
