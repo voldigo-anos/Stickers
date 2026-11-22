@@ -114,6 +114,10 @@ def present_request(endpoint, request_data):
 
 
 class PresentationRequest(HTTPXRequest):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._keyboards = {}
+
     async def do_request(self, url, method, request_data=None, **kwargs):
         endpoint = url.rsplit('/', 1)[-1]
         data = present_request(endpoint, request_data)
@@ -125,8 +129,24 @@ class PresentationRequest(HTTPXRequest):
         if (endpoint == 'sendMessage' and parameters.get('parse_mode') == 'HTML'
                 and not parameters.get('entities') and not parameters.get('business_connection_id')):
             frames = progressive_frames(parameters['text'])
+        markup_value = parameters.get('reply_markup')
+        if isinstance(markup_value, str):
+            markup_value = json.loads(markup_value)
+        if len(frames) > 1 and isinstance(markup_value, dict) and 'inline_keyboard' not in markup_value:
+            # Telegram refuses to edit messages carrying a reply keyboard; that keyboard
+            # persists in the chat, so only resend it when it changes.
+            key = json.dumps(markup_value, sort_keys=True)
+            chat = str(parameters.get('chat_id'))
+            if self._keyboards.get(chat) == key:
+                parameters = dict(parameters)
+                parameters.pop('reply_markup')
+            else:
+                self._keyboards[chat] = key
+                frames = [parameters['text']]
         if len(frames) == 1 and final_markup is None:
-            return await super().do_request(url, method, request_data=data, **kwargs)
+            return await super().do_request(url, method, request_data=PresentedData(data, parameters), **kwargs)
+        if len(frames) == 1:
+            frames = [parameters['text']]
         initial = dict(parameters, text=frames[0])
         response = await super().do_request(
             url, method, request_data=PresentedData(data, initial), **kwargs
@@ -165,6 +185,7 @@ class PresentationRequest(HTTPXRequest):
                     response = (edit_status, edit_body)
                     continue
                 # Skip intermediate frames when Telegram throttles edits, then finish in full.
+                logger.warning('Edition refusee: %s', edit_body[:200])
                 delay = outcome.get('parameters', {}).get('retry_after')
                 if delay:
                     await asyncio.sleep(float(delay))
