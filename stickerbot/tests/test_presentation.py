@@ -64,6 +64,37 @@ class PresentationIntegrityTests(unittest.TestCase):
                 await request.shutdown()
         asyncio.run(flow())
 
+    def test_reply_keyboard_message_still_fully_revealed(self):
+        async def flow():
+            sent = []
+            async def respond(request):
+                data = parse_qs(request.content.decode())
+                sent.append((request.url.path.rsplit('/', 1)[-1], data))
+                if request.url.path.endswith('editMessageText') and 'reply_markup' in data:
+                    return httpx.Response(400, json={'ok': False, 'description': "message can't be edited"})
+                return httpx.Response(200, json={'ok': True, 'result': {'message_id': 7}})
+            request = PresentationRequest(httpx_kwargs={'transport': httpx.MockTransport(respond)})
+            await request.initialize()
+            text = '<b>Bienvenue</b>\n<blockquote>un deux trois quatre cinq six</blockquote>'
+            keyboard = {'keyboard': [[{'text': 'Menu'}]], 'resize_keyboard': True}
+            try:
+                for _ in range(2):
+                    await request.do_request('https://api.telegram.org/botTEST/sendMessage', 'POST',
+                        request_data=RequestFixture({'chat_id': 42, 'text': text, 'parse_mode': 'HTML', 'reply_markup': keyboard}))
+            finally:
+                await request.shutdown()
+            last = [d for e, d in sent if e == 'editMessageText'][-1]
+            self.assertEqual(last['text'], [text])
+            self.assertGreater(len(sent), 3)
+        import presentation
+        original = presentation.asyncio.sleep
+        async def no_wait(_): pass
+        presentation.asyncio.sleep = no_wait
+        try:
+            asyncio.run(flow())
+        finally:
+            presentation.asyncio.sleep = original
+
 
 if __name__ == '__main__':
     unittest.main()
