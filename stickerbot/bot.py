@@ -282,9 +282,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update,
         S.START.format(name=html.escape(user.first_name or 'toi')),
         reply_markup=kb.main_menu(is_admin(user.id)),
-    )
-    await update.effective_message.reply_html(
-        '🔗 <b>Rejoins-nous :</b>', reply_markup=kb.start_links()
+        api_kwargs={'presentation_final_markup': kb.start_links().to_dict()},
     )
 
 
