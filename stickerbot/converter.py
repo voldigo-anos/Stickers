@@ -33,6 +33,8 @@ SHAPE_COVER = 'cover'
 
 WM_CLASSIC = 'classic'
 WM_ANIMATED = 'animated'
+WM_LOGO = 'logo'
+LOGO_PREFIX = '[LOGO]'
 
 FFMPEG_TIMEOUT = 120
 
@@ -152,10 +154,54 @@ def _wm_margin(width: int, shape: str) -> int:
     return max(6, int(width * 0.035))
 
 
+def _opaque(label):
+    label.putalpha(label.getchannel('A').point(lambda a: min(255, round(a / WM_TEXT_ALPHA))))
+    return label
+
+
+def logo_layer(width, height, text, shape, color=DEFAULT_COLOR):
+    """Logo facon chaine TV (ex : CANAL PURGE) en haut a droite de chaque sticker."""
+    layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    words = text.strip().split(None, 1)
+    if not words:
+        return layer
+    margin = _wm_margin(width, shape)
+    size = max(12, int(height * 0.055))
+    pad = max(3, size // 4)
+    max_w = int(width * (0.42 if shape == SHAPE_ROUND else 0.5))
+    first = _opaque(render_text(words[0].upper(), max_w, size * 2, size, '#FFFFFF'))
+    parts = [(first, (0, 0, 0, 215))]
+    if len(words) > 1:
+        rgb = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+        dark = sum(rgb) > 380
+        second = _opaque(render_text(words[1].upper(), max_w, size * 2, size, '#000000' if dark else '#FFFFFF'))
+        parts.append((second, rgb + (235,)))
+    box_h = max(p.height for p, _ in parts) + 2 * pad
+    total = sum(p.width + 2 * pad for p, _ in parts)
+    if total > width - 2 * margin:
+        scale = (width - 2 * margin) / total
+        parts = [(p.resize((max(1, int(p.width * scale)), max(1, int(p.height * scale)))), f) for p, f in parts]
+        box_h = max(p.height for p, _ in parts) + 2 * pad
+        total = sum(p.width + 2 * pad for p, _ in parts)
+    x = width - margin - total
+    y = margin
+    draw = ImageDraw.Draw(layer)
+    for index, (part, fill) in enumerate(parts):
+        w = part.width + 2 * pad
+        # le second bloc est legerement releve, comme les logos de chaine
+        dy = -pad if index else 0
+        draw.rectangle((x, y + dy, x + w - 1, y + dy + box_h - 1), fill=fill)
+        layer.alpha_composite(part, (x + pad, y + dy + (box_h - part.height) // 2))
+        x += w
+    return layer
+
+
 def watermark_layer(width, height, text, shape, color=DEFAULT_COLOR):
     layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     if not (text or '').strip():
         return layer
+    if text.strip().startswith(LOGO_PREFIX):
+        return logo_layer(width, height, text.strip()[len(LOGO_PREFIX):], shape, color)
     margin = _wm_margin(width, shape)
     max_width = width - 2 * margin
     # Keep the whole label inside the lower-left part of a circular sticker.
