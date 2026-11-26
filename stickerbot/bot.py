@@ -836,6 +836,13 @@ async def apply_watermark(update: Update, context: ContextTypes.DEFAULT_TYPE, te
 
 async def finish_style(update, context, color, style=converter.WM_CLASSIC):
     auto = context.user_data.get('auto')
+    logo = style == converter.WM_LOGO
+    if logo:
+        # logo de chaine : meme rendu fixe que l'ecriture classique, place en haut a droite
+        text = (context.user_data.get('watermark') or '').strip()
+        if text:
+            context.user_data['watermark'] = converter.LOGO_PREFIX + text
+        style = converter.WM_CLASSIC
     if auto and auto.get('name') and auto.get('count'):
         watermark = (context.user_data.pop('watermark', '') or '').strip()
         if watermark:
@@ -886,7 +893,7 @@ async def finish_style(update, context, color, style=converter.WM_CLASSIC):
             title=html.escape(active['title']),
             link=pack_link(active['name']),
             shape=S.SHAPE_LABELS[shape],
-            wm=html.escape(watermark) + ' · ' + kb.color_label(color) + ' · ' + S.WM_STYLE_LABELS[style] if watermark else 'aucune',
+            wm=html.escape(watermark.removeprefix(converter.LOGO_PREFIX)) + ' · ' + kb.color_label(color) + ' · ' + S.WM_STYLE_LABELS['logo' if logo else style] if watermark else 'aucune',
             render=S.RENDER_LABELS[active.get('fx') or 'normal'],
         ),
         reply_markup=kb.pack_menu(),
