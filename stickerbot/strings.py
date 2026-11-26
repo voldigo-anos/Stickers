@@ -330,9 +330,11 @@ ASK_WM_STYLE = (
     "✍️ <b>Style de l’écriture</b>\n\n"
     "✍️ Classique : ton écriture discrète habituelle.\n"
     "✨ Animée : le texte apparaît, disparaît puis les lettres retombent, en boucle.\n"
-    "Toujours <b>en bas à gauche</b>. Avec le style animé, les photos deviennent des stickers vidéo."
+    "📺 Logo de chaîne : ton texte devient un logo de chaîne TV en <b>haut à droite</b> de chaque sticker "
+    "(ex : <code>Canal Purge</code> → CANAL en noir, PURGE dans ta couleur).\n"
+    "Classique et animée restent <b>en bas à gauche</b>. Avec le style animé, les photos deviennent des stickers vidéo."
 )
-WM_STYLE_LABELS = {'classic': '✍️ Classique', 'animated': '✨ Animée'}
+WM_STYLE_LABELS = {'classic': '✍️ Classique', 'animated': '✨ Animée', 'logo': '📺 Logo de chaîne'}
 
 
 FX_ASK = "🎨 <b>Retoucher tout le pack</b>\n\nChoisis l'effet à appliquer à <b>tous</b> les stickers (statiques et vidéo) :"
