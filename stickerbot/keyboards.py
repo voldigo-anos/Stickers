@@ -224,12 +224,14 @@ def split_stop() -> InlineKeyboardMarkup:
 
 BTN_WM_CLASSIC = '✍️ Écriture classique'
 BTN_WM_ANIMATED = '✨ Écriture animée'
-WM_STYLES = {BTN_WM_CLASSIC: 'classic', BTN_WM_ANIMATED: 'animated'}
+BTN_WM_LOGO = '📺 Logo de chaîne'
+WM_STYLES = {BTN_WM_CLASSIC: 'classic', BTN_WM_ANIMATED: 'animated', BTN_WM_LOGO: 'logo'}
 
 
 def writing_style_menu():
     return ReplyKeyboardMarkup(
         [[KeyboardButton(BTN_WM_CLASSIC), KeyboardButton(BTN_WM_ANIMATED)],
+         [KeyboardButton(BTN_WM_LOGO)],
          [KeyboardButton(BTN_CANCEL)]], resize_keyboard=True, selective=True,
     )
 
